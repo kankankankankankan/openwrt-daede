@@ -64,9 +64,8 @@
    - 装配工作流把固定 commit 的源码冻结成**自托管 tarball**（发布在本仓库 `dae-src` / `daed-src`），并写入 `PKG_HASH`
    - SDK 只 go-compile 这份冻结源 —— 旧 commit 永远能复现，不受上游变动影响
 
-3. **广架构覆盖**
-   - x86_64 / i386 / aarch64（a53/a72/generic）/ **armv7（a7/a9）** 出完整内核包
-   - armv7 通过移植 [sbwml/openwrt_helloworld](https://github.com/sbwml/openwrt_helloworld) 的 `vmlinux-arm.h` 补丁解决 trace eBPF 编译问题
+3. **当前发布架构**
+   - 当前仅发布 **x86_64** 的完整内核包（SDK 24.10 / 25.12）
 
 ### 三个外部依赖与闭合状态
 
@@ -84,7 +83,7 @@
 
 - **更快**：性能 fork + PGO + 新 Go 优化器，不是原版 daeuniverse 直接打包
 - **更稳**：自托管冻结源 + `PKG_HASH`，上游 force-push / 删库都不影响历史版本构建
-- **更全**：一个 `luci-app-daede` 同时管 dae 和 daed，**热切换内核不用重装**；架构覆盖到 armv7
+- **更全**：一个 `luci-app-daede` 同时管 dae 和 daed，**热切换内核不用重装**
 - **可追溯**：所有依赖 commit 在 `ci/pins.env` 一处锁定，装配 / 发布全自动且留痕
 
 ### 包含什么
@@ -118,7 +117,7 @@ wget -qO- https://down.dllkids.xyz/openwrt-feed/openwrt-feed-setup.sh | sh
 脚本自动完成：
 
 - ✅ 检测 SDK 版本（24.10 / 25.12）与处理器架构
-- ✅ 检测该架构 feed 是否存在（覆盖 `Packages.gz` / `APKINDEX.tar.gz` / `packages.adb` 三类索引），缺则回退 `all`
+- ✅ 检测 x86_64 feed 是否存在（覆盖 `Packages.gz` / `APKINDEX.tar.gz` / `packages.adb` 三类索引）
 - ✅ 下载对应公钥，opkg → `opkg-key add`；apk → 放入 `/etc/apk/keys/`
 - ✅ 写入/更新源配置（`customfeeds.conf` 或 `/etc/apk/repositories`），不会重复堆积
 - ✅ 执行 `opkg update` / `apk update`，签名校验失败时自动回退 `--allow-untrusted`
