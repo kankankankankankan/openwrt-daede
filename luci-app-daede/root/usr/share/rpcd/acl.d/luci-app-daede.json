@@ -3,6 +3,7 @@
 		"description": "Grant access to dae/daed configuration",
 		"read": {
 			"file": {
+				"/usr/share/luci-app-daede/member-sync.sh status": [ "exec" ],
 				"/etc/init.d/dae": [ "read" ],
 				"/etc/init.d/daed": [ "read" ],
 				"/etc/config/daede": [ "read" ],
@@ -39,6 +40,11 @@
 		},
 		"write": {
 			"file": {
+				"/tmp/daede-member-request.*.json": [ "write" ],
+				"/usr/share/luci-app-daede/member-sync.sh login *": [ "exec" ],
+				"/usr/share/luci-app-daede/member-sync.sh sync": [ "exec" ],
+				"/usr/share/luci-app-daede/member-sync.sh logout": [ "exec" ],
+				"/usr/share/luci-app-daede/member-sync.sh local": [ "exec" ],
 				"/etc/dae/config.dae": [ "write" ],
 				"/tmp/dae-validate.dae": [ "write" ],
 				"/tmp/daede-import.b64": [ "write" ],

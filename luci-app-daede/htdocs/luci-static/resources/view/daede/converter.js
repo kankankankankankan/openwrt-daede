@@ -7,6 +7,7 @@
 'require view';
 'require view.daede.airport-sync as airportSync';
 'require view.daede.backend as backend';
+'require view.daede.member as member';
 'require view.daede.clash-converter as clashConverter';
 'require view.daede.daed-session as daedSession';
 'require view.daede.styles as styles';
@@ -583,7 +584,7 @@ return view.extend({
 
 			// 1. stage the converted links and let the backend write the local
 			// .sub file (mkdir + chmod 0600 — dae rejects loose perms).
-			return fs.write(SUB_STAGE, subContent).then(function() {
+			return member.assertLocal().then(function() { return fs.write(SUB_STAGE, subContent); }).then(function() {
 				return fs.exec(GENERATOR, [ 'write-sub', airportId ]);
 			}).then(function(res) {
 				if (res && res.code !== 0)

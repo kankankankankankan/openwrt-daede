@@ -5,8 +5,8 @@
 # in /tmp prevents concurrent runs.
 
 TYPE="$1"
-# Default source: Loyalsoldier/v2ray-rules-dat — daily-built, China-optimized,
-# ships both geoip.dat and geosite.dat. Users can override per-type via
+# Default source: direct Loyalsoldier/v2ray-rules-dat. Acceleration is selected in LuCI.
+# Users can override per-type via
 # daede.config.geoip_url / geosite_url (empty falls back to the default below).
 case "$TYPE" in
 	geoip)

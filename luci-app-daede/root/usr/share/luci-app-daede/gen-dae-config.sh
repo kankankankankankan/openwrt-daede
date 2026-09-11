@@ -187,6 +187,11 @@ _collect_kw() {
 }
 
 generate() {
+	# 2026-09-11: Prevent stale LuCI tabs and subscription imports from replacing cloud config.
+	if [ "$(uci -q get daede.member.mode)" = cloud ]; then
+		echo "当前使用云端配置，请先切换到本地编辑" >&2
+		return 1
+	fi
 	config_load dae
 
 	# global overridable knobs (fall back to defaults)

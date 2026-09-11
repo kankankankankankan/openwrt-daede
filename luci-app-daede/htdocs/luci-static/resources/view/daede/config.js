@@ -9,6 +9,7 @@
 'require view.daede.widgets as widgets';
 'require view.daede.dae as daeView';
 'require view.daede.daed as daedView';
+'require view.daede.member as member';
 
 return view.extend({
 	_loadContext: function() {
@@ -19,7 +20,11 @@ return view.extend({
 				return network.getDevices().catch(function() { return []; }).then(function(devs) {
 					ctx.netDevs = (devs || []).map(function(d) { return d.getName(); })
 						.filter(function(n) { return n && n !== 'dae0'; }).sort();
-					return ctx;
+					return member.getStatus().then(function(state) {
+						ctx.memberState = state;
+					}).catch(function(error) {
+						ctx.memberError = error.message || '会员配置服务不可用';
+					}).then(function() { return ctx; });
 				});
 			});
 		});
@@ -81,9 +86,13 @@ return view.extend({
 		if (!ctx.installed[ctx.name]) {
 			children.push(E('div', { 'class': 'dd-card dd-warning' }, _('Selected backend is not installed. Install dae or daed from the package feed first.')));
 		} else if (ctx.name === 'dae') {
-			children.push(daeView.renderDaeImportBanner());
-			children.push(daeView.renderDaeForms(ctx));
-			children.push(daeView.renderDaeEditor());
+			children.push(member.render(ctx));
+			// 2026-09-11: Cloud configurations have one writer; fail closed if status is unavailable.
+			if (!ctx.memberError && ctx.memberState.mode !== 'cloud') {
+				children.push(daeView.renderDaeImportBanner());
+				children.push(daeView.renderDaeForms(ctx));
+				children.push(daeView.renderDaeEditor());
+			}
 		} else {
 			children.push(daedView.renderDaedSettings());
 		}

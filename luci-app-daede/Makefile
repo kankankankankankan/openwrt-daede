@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
 PKG_VERSION:=1.15
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_MAINTAINER:=kenzok8
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
@@ -15,7 +15,7 @@ include $(INCLUDE_DIR)/package.mk
 define Package/$(PKG_NAME)/config
 	choice
 		prompt "Backend dependency"
-		default PACKAGE_$(PKG_NAME)_daed
+		default PACKAGE_$(PKG_NAME)_dae
 		help
 			Select which backend package luci-app-daede should pull in by default.
 
@@ -33,7 +33,7 @@ define Package/$(PKG_NAME)
 	CATEGORY:=LuCI
 	SUBMENU:=3. Applications
 	TITLE:=LuCI app for daede dashboard
-	DEPENDS:=+luci-base +PACKAGE_$(PKG_NAME)_dae:dae +PACKAGE_$(PKG_NAME)_daed:daed
+	DEPENDS:=+luci-base +curl +ca-bundle +PACKAGE_$(PKG_NAME)_dae:dae +PACKAGE_$(PKG_NAME)_daed:daed
 	PKGARCH:=all
 	MAINTAINER:=kenzok8
 endef
@@ -75,6 +75,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/update-geo.sh $(1)/usr/share/luci-app-daede/update-geo.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/update-pkg.sh $(1)/usr/share/luci-app-daede/update-pkg.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/gen-dae-config.sh $(1)/usr/share/luci-app-daede/gen-dae-config.sh
+	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/member-sync.sh $(1)/usr/share/luci-app-daede/member-sync.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/proxy-check.sh $(1)/usr/share/luci-app-daede/proxy-check.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/fetch-clash-yaml.sh $(1)/usr/share/luci-app-daede/fetch-clash-yaml.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/config-backup.sh $(1)/usr/share/luci-app-daede/config-backup.sh

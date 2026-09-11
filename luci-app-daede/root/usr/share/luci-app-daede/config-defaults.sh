@@ -28,4 +28,12 @@ if ! uci -q get dae.dns >/dev/null 2>&1; then
 	uci -q set dae.dns.fallback_upstream='tcp+udp://dns.google:53'
 	uci -q set dae.dns.response_ttl='0'
 fi
+# 2026-09-11: leave geo sources empty; acceleration is an explicit Updates-menu choice.
+if ! uci -q get daede.config.geoip_url >/dev/null 2>&1; then
+	uci -q set daede.config.geoip_url=''
+fi
+if ! uci -q get daede.config.geosite_url >/dev/null 2>&1; then
+	uci -q set daede.config.geosite_url=''
+fi
 uci -q commit dae
+uci -q commit daede
