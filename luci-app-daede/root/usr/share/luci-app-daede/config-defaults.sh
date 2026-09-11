@@ -28,4 +28,12 @@ if ! uci -q get dae.dns >/dev/null 2>&1; then
 	uci -q set dae.dns.fallback_upstream='tcp+udp://dns.google:53'
 	uci -q set dae.dns.response_ttl='0'
 fi
+# 2026-09-11: keep the configured GitHub accelerator for geo data, with direct GitHub as fallback.
+if ! uci -q get daede.config.geoip_url >/dev/null 2>&1; then
+	uci -q set daede.config.geoip_url='https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
+fi
+if ! uci -q get daede.config.geosite_url >/dev/null 2>&1; then
+	uci -q set daede.config.geosite_url='https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
+fi
 uci -q commit dae
+uci -q commit daede

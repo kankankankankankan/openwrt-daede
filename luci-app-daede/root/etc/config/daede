@@ -1,2 +1,6 @@
 config daede 'config'
-	option active_backend 'daed'
+	option active_backend 'dae'
+
+# 2026-09-11: Public preferences only; member credentials remain outside UCI.
+config member 'member'
+	option mode 'local'

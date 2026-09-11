@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 'use strict';
+'require view.daede.member as member';
 'require baseclass';
 'require form';
 'require fs';
@@ -322,13 +323,21 @@ function renderDaeForms(ctx) {
 		const netDevs = (ctx && ctx.netDevs) || [];
 		s = m.section(form.NamedSection, 'config', 'dae', _('Network interfaces'));
 		s.addremove = false;
+		o = s.option(form.DummyValue, '_network_topology_help', _('Network topology guidance'));
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			const physical = netDevs.filter(function(name) { return !/^(lo|br-|docker|dae|tun|tap|veth)/i.test(name); });
+			if (physical.length <= 1)
+				return '<strong>单网卡旁路由：</strong>LAN 请选择连接内网的桥接接口，通常是 br-lan；WAN 保持 auto。上级路由器继续负责拨号和默认网关。';
+			return '<strong>多网卡正常路由：</strong>LAN 请选择内网接口，WAN 请选择外网接口或 VLAN；确认默认路由和防火墙都指向 WAN。';
+		};
 		o = s.option(form.Value, 'lan_interface', _('LAN interface'),
-			_('Interface to proxy the LAN from. Usually br-lan.'));
+			_('单网卡旁路由选择内网桥。多网卡正常路由选择连接 LAN 的接口。'));
 		o.default = 'br-lan';
 		o.placeholder = 'br-lan';
 		netDevs.forEach(function(d) { o.value(d); });
 		o = s.option(form.Value, 'wan_interface', _('WAN interface'),
-			_('Uplink. auto = detect by default route; on legacy swconfig or multi-WAN set it, e.g. eth0.2.'));
+			_('单网卡旁路由保持 auto。多网卡正常路由选择外网接口或 VLAN，例如 eth0.2。'));
 		o.default = 'auto';
 		o.placeholder = 'auto';
 		o.value('auto', 'auto');
@@ -375,7 +384,7 @@ function renderDaeForms(ctx) {
 		if (!uci.get('dae', 'routing')) uci.add('dae', 'routing', 'routing');
 		if (!uci.get('dae', 'dns'))     uci.add('dae', 'dns', 'dns');
 		if (!uci.get('dae', 'config'))  uci.add('dae', 'dae', 'config');
-		return m.save(null, true)
+		return member.assertLocal().then(function() { return m.save(null, true); })
 			.then(function() {
 				restoreLiveAccordions();
 				/* assign unique tags to any rows the user left blank */
@@ -694,7 +703,7 @@ function renderDaeEditor() {
 		ev.preventDefault();
 		save.disabled = true;
 		flashStatus(_('Validating…'));
-		fs.write(VALIDATE_PATH, textarea.value, 384)
+		member.assertLocal().then(function() { return fs.write(VALIDATE_PATH, textarea.value, 384); })
 			.then(function() { return fs.exec('/usr/bin/dae', ['validate', '-c', VALIDATE_PATH]); })
 			.then(function(res) {
 				if (res && res.code !== 0) {
