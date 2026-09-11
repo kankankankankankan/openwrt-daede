@@ -39,14 +39,14 @@ function login(values) {
 
 function render(ctx) {
 	const state = ctx.memberState || {};
-	const url = E('input', { 'type': 'url', 'class': 'cbi-input-text', 'placeholder': 'https://你的规则系统域名', 'value': state.url || '', 'autocomplete': 'url' });
+	const url = E('input', { 'type': 'url', 'class': 'cbi-input-text', 'placeholder': 'https://规则系统域名', 'value': state.url || '', 'autocomplete': 'url' });
 	const username = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'autocomplete': 'username' });
 	const password = E('input', { 'type': 'password', 'class': 'cbi-input-password', 'autocomplete': 'current-password' });
 	const lan = E('select', { 'class': 'cbi-input-select' });
 	(ctx.netDevs || []).forEach(function(name) { lan.appendChild(E('option', { 'value': name }, name)); });
 	lan.value = state.lan_interface || 'br-lan';
 	if (!lan.value && lan.options.length) lan.selectedIndex = 0;
-	const feedback = E('p', { 'role': 'status', 'aria-live': 'polite', 'style': 'white-space:pre-wrap;overflow-wrap:anywhere' }, ctx.memberError || state.warning || '');
+	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || state.warning || '');
 	const buttons = [];
 	function action(label, handler, primary) {
 		const button = E('button', { 'type': 'button', 'class': 'cbi-button ' + (primary ? 'cbi-button-action' : 'cbi-button-neutral') }, label);
@@ -68,14 +68,40 @@ function render(ctx) {
 	}
 	function reload() { window.location.reload(); }
 	function field(label, input) {
-		return E('label', { 'style': 'display:flex;flex-direction:column;gap:6px;min-width:0' }, [E('span', {}, label), input]);
+		return E('label', { 'class': 'dd-member-field' }, [E('span', {}, label), input]);
 	}
+	function stateText() {
+		const syncTime = state.last_sync ? new Date(state.last_sync).getTime() : 0;
+		const elapsed = syncTime ? Math.max(0, Date.now() - syncTime) : 0;
+		let recent = '';
+		if (syncTime) {
+			if (elapsed < 60 * 1000) recent = '刚刚';
+			else if (elapsed < 60 * 60 * 1000) recent = Math.floor(elapsed / 60000) + ' 分钟前';
+			else if (elapsed < 24 * 60 * 60 * 1000) recent = Math.floor(elapsed / 3600000) + ' 小时前';
+			else recent = new Date(syncTime).toLocaleString();
+		}
+		const rules = !state.last_sync ? '未同步' : state.warning ? '需检查' : '已加载';
+		return (state.logged_in ? '已连接' : '未登录') + ' · ' +
+			(state.mode === 'cloud' ? '云端配置' : '本地配置') +
+			(recent ? ' · 最近同步 ' + recent : '') +
+			' · 规则状态：' + rules;
+	}
+	const stateLine = E('p', { 'class': 'dd-member-state' }, stateText());
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
 		if (!url.value.trim() || !username.value.trim() || !password.value || !lan.value)
 			throw new Error('请填写系统地址、账号、密码并选择 LAN 接口');
 		return login({ url: url.value.trim(), username: username.value.trim(), password: password.value, lan_interface: lan.value }).then(reload);
 	}, !state.logged_in);
-	const sync = action('同步并启用', function() { return invoke('sync').then(reload); }, true);
+	const sync = action('同步并启用', function() {
+		return invoke('sync').then(function(result) {
+			state.logged_in = true;
+			state.mode = 'cloud';
+			state.last_sync = result.last_sync || new Date().toISOString();
+			stateLine.textContent = stateText();
+			local.hidden = false;
+			feedback.textContent = '同步成功，dae 已启用并开始运行。';
+		});
+	}, true);
 	sync.disabled = !state.logged_in || !!ctx.memberError;
 	const logout = action('退出登录', function() { return invoke('logout').then(reload); });
 	logout.disabled = !state.logged_in;
@@ -92,17 +118,25 @@ function render(ctx) {
 		]);
 	});
 	local.hidden = state.mode !== 'cloud';
+	const credentials = E('div', { 'class': 'dd-member-fields', 'style': state.logged_in ? 'display:none' : '' }, [
+		field('系统地址', url),
+		E('div', { 'class': 'dd-member-grid' }, [field('账号', username), field('密码', password), field('LAN 接口', lan)]),
+		E('div', { 'class': 'dd-member-actions' }, [signIn, logout]),
+		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。')
+	]);
+	const settings = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '账户设置');
+	settings.hidden = !state.logged_in;
+	settings.addEventListener('click', function() {
+		const opening = credentials.style.display === 'none';
+		credentials.style.display = opening ? 'grid' : 'none';
+		settings.textContent = opening ? '收起设置' : '账户设置';
+	});
 	return E('div', { 'class': 'dd-card' }, [
 		E('h4', { 'class': 'dd-card-title' }, '会员配置'),
-		E('p', {}, (state.logged_in ? '会员已登录' : '会员未登录') + ' · ' + (state.mode === 'cloud' ? '云端配置' : '本地配置')),
-		state.last_sync ? E('p', {}, '上次成功同步：' + state.last_sync) : '',
-		E('p', {}, '登录 Surge DNA 后获取 dae 配置。系统地址使用你部署会员配置中心的 HTTPS 域名。'),
-		E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0' }, [
-			field('规则系统地址', url), field('会员账号', username), field('会员密码', password), field('LAN 接口', lan)
-		]),
-		E('div', { 'style': 'display:flex;flex-wrap:wrap;gap:8px' }, [signIn, sync, logout, local]),
-		feedback,
-		E('p', { 'style': 'font-size:12px;opacity:.8' }, '密码不保存。路由器重启后需重新登录才能同步，已保存配置继续使用。上游要求验证码时，当前请使用会员网页下载配置。')
+		stateLine,
+		credentials,
+		E('div', { 'class': 'dd-member-actions' }, [sync, settings, local]),
+		feedback
 	]);
 }
 

@@ -123,7 +123,7 @@ case "$1" in
   if [ "$STALE" = 1 ] || [ "$STALE" = true ]; then
    WARNING='Upstream unavailable: this configuration uses a saved subscription snapshot. Review the member website.'
   elif [ "$wt" = array ]; then
-   WARNING='Review the adaptation report in the member website before relying on all rules.'
+   WARNING='规则适配报告已生成，请先在会员配置中心查看后再使用。'
   fi
   request GET "/api/dae/$JOB/config.dae" "$WORK/cookie" '' 8388608 || error 'Configuration download failed; current configuration was kept'
   [ -s "$WORK/response" ] || error 'Downloaded configuration is empty'
