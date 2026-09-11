@@ -39,7 +39,7 @@ function login(values) {
 
 function render(ctx) {
 	const state = ctx.memberState || {};
-	const url = E('input', { 'type': 'url', 'class': 'cbi-input-text', 'placeholder': 'https://你的规则系统域名', 'value': state.url || '', 'autocomplete': 'url' });
+	const url = E('input', { 'type': 'url', 'class': 'cbi-input-text', 'placeholder': 'https://规则系统域名', 'value': state.url || '', 'autocomplete': 'url' });
 	const username = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'autocomplete': 'username' });
 	const password = E('input', { 'type': 'password', 'class': 'cbi-input-password', 'autocomplete': 'current-password' });
 	const lan = E('select', { 'class': 'cbi-input-select' });
@@ -94,15 +94,11 @@ function render(ctx) {
 	local.hidden = state.mode !== 'cloud';
 	return E('div', { 'class': 'dd-card' }, [
 		E('h4', { 'class': 'dd-card-title' }, '会员配置'),
-		E('p', {}, (state.logged_in ? '会员已登录' : '会员未登录') + ' · ' + (state.mode === 'cloud' ? '云端配置' : '本地配置')),
-		state.last_sync ? E('p', {}, '上次成功同步：' + state.last_sync) : '',
-		E('p', {}, '登录 Surge DNA 后获取 dae 配置。系统地址使用你部署会员配置中心的 HTTPS 域名。'),
-		E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:16px 0' }, [
-			field('规则系统地址', url), field('会员账号', username), field('会员密码', password), field('LAN 接口', lan)
-		]),
+		E('p', { 'class': 'dd-member-state' }, (state.logged_in ? '已登录' : '未登录') + ' · ' + (state.mode === 'cloud' ? '云端配置' : '本地配置') + (state.last_sync ? ' · 最近同步 ' + state.last_sync : '')),
+		E('div', { 'style': 'display:grid;gap:10px;margin:12px 0' }, [field('系统地址', url), E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px' }, [field('账号', username), field('密码', password), field('LAN 接口', lan)])]),
 		E('div', { 'style': 'display:flex;flex-wrap:wrap;gap:8px' }, [signIn, sync, logout, local]),
 		feedback,
-		E('p', { 'style': 'font-size:12px;opacity:.8' }, '密码不保存。路由器重启后需重新登录才能同步，已保存配置继续使用。上游要求验证码时，当前请使用会员网页下载配置。')
+		E('p', { 'style': 'font-size:12px;opacity:.8' }, '密码不保存，重启后需重新登录。')
 	]);
 }
 
