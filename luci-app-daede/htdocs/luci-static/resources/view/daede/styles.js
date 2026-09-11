@@ -12,6 +12,15 @@ const CSS = [
 	/* padding:0 neutralizes Argon's h4{padding:.75rem 1.25rem}, which otherwise
 	   indents the title 20px past the card body and looks misaligned */
 	'.dd-card-title{font-size:11px;font-weight:600;opacity:.55;margin:0 0 8px;padding:0;letter-spacing:.3px;text-transform:uppercase}',
+	'.dd-member-state{margin:0;font-size:12px;line-height:1.5;opacity:.72;color:inherit}',
+	'.dd-member-fields{display:grid;gap:9px;margin:10px 0}',
+	'.dd-member-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px}',
+	'.dd-member-field{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12px;font-weight:600;opacity:.82}',
+	'.dd-member-field input,.dd-member-field select{box-sizing:border-box;width:100%;height:32px;min-height:32px;margin:0;padding:4px 8px;font-size:12px;line-height:22px;color:inherit;background:transparent;border:1px solid rgba(128,128,128,.28);border-radius:6px;box-shadow:none}',
+	'.dd-member-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}',
+	'.dd-member-actions .cbi-button{min-height:0;height:30px;margin:0;padding:4px 11px;font-size:11.5px;line-height:20px}',
+	'.dd-member-note,.dd-member-feedback{margin:7px 0 0;font-size:11.5px;line-height:1.45;color:inherit;opacity:.62}',
+	'.dd-member-feedback:empty{display:none}',
 	'.dd-status-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:0}',
 	'.dd-status-row .dd-grow{flex:1 1 auto}',
 	'.dd-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:999px;font-size:10.5px;font-weight:700;letter-spacing:.3px;border:1px solid transparent;line-height:1.3}',
