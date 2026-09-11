@@ -483,7 +483,7 @@ return view.extend({
 
 			const presetSel = E('select', {}, [
 				E('option', { 'value': 'loyalsoldier' }, 'Loyalsoldier'),
-				E('option', { 'value': 'githubAccelerated' }, 'GitHub 加速（yesageek）'),
+				E('option', { 'value': 'githubAccelerated' }, 'GitHub 加速（ghfast.top）'),
 				E('option', { 'value': 'v2fly' }, 'v2fly'),
 				E('option', { 'value': 'custom' }, _('Custom'))
 			]);

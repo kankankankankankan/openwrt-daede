@@ -276,4 +276,4 @@
 
 后续处理方式：从 `config.dae` 提取规则、分组和 DNS 结构，替换真实节点与本机参数，增加唯一的 `__DAE_LAN_INTERFACE__` 占位符，再由服务端按会员节点生成。备份中的节点文件和 `wing.db` 只用于审阅和测试副本，不能进入仓库、固件或日志。
 
-2026-09-11：GeoIP 与 GeoSite 默认下载改用 `https://ghfast.top/https://github.com/...` 形式。实际测试中该入口返回完整文件；`ghproxy.cc` 证书过期，`mirror.ghproxy.com` 连接失败，`ghproxy.net` 本次返回不完整且超时。加速服务属于外部依赖，更新失败时应切换到 LuCI 自定义 URL 中的 GitHub 直连或其他经实测可用的镜像，不应把单一镜像视为永久保证。
+2026-09-11：GeoIP 与 GeoSite 更新保持原始 GitHub 直连为默认。LuCI「更新」页面提供 `GitHub 加速（ghfast.top）` 选项，用户主动选择后才写入加速 URL；加速服务属于外部依赖，更新失败时可切换为直连或自定义 URL。

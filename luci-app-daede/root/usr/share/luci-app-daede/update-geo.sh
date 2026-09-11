@@ -5,17 +5,17 @@
 # in /tmp prevents concurrent runs.
 
 TYPE="$1"
-	# Default source: ghfast.top accelerated Loyalsoldier/v2ray-rules-dat.
-	# Users can override per-type via
+# Default source: direct Loyalsoldier/v2ray-rules-dat. Acceleration is selected in LuCI.
+# Users can override per-type via
 # daede.config.geoip_url / geosite_url (empty falls back to the default below).
 case "$TYPE" in
 	geoip)
-		DEF_URL="https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+		DEF_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 		URL="$(uci -q get daede.config.geoip_url)"
 		DEST="/usr/share/v2ray/geoip.dat"
 		;;
 	geosite)
-		DEF_URL="https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+		DEF_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 		URL="$(uci -q get daede.config.geosite_url)"
 		DEST="/usr/share/v2ray/geosite.dat"
 		;;
