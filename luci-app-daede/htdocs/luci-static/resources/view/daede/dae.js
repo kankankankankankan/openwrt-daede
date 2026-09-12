@@ -9,72 +9,320 @@
 'require ui';
 'require view.daede.backend as backend';
 
-/* dae 示例里的占位订阅特征 —— example.com、relative/path/to 或中文占位文本 */
-const RE_PLACEHOLDER_URL = /(['"])(?:(?:https?|https-file|file):\/\/[^'"]*?(?:example\.com|relative\/path\/to)[^'"]*|你的订阅链接或者机场链接)\1/;
+/* dae 示例里的占位订阅特征，包括示例域名、示例路径和中文占位文本。 */
+const RE_PLACEHOLDER_URL = /(['"])((?:(?:https?|https-file|file):\/\/[^'"]*?(?:example\.com|relative\/path\/to)[^'"]*|你的订阅(?:地址|链接或者机场链接)))\1/;
 
-/* Minimal ready-to-run default: gen-dae-config.sh defaults + a placeholder subscription to swap. */
-const DEFAULT_TEMPLATE =
-	'# luci-app-daede 默认配置：把 subscription 里的占位链接换成你的机场订阅，保存即可运行。\n' +
-	'global {\n' +
-	'    # 端口与网卡：lan_interface 填内网桥（通常 br-lan），wan_interface 保持 auto 即可。\n' +
-	'    tproxy_port: 12345\n' +
-	'    tproxy_port_protect: true\n' +
-	'    so_mark_from_dae: 0\n' +
-	'    log_level: info\n' +
-	'    lan_interface: br-lan\n' +
-	'    wan_interface: auto\n' +
-	'    auto_config_kernel_parameter: true\n' +
-	'    dial_mode: domain\n' +
-	"    tcp_check_url: 'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'\n" +
-	"    udp_check_dns: 'dns.google:53,8.8.8.8,2001:4860:4860::8888'\n" +
-	'    check_interval: 30s\n' +
-	'    check_tolerance: 50ms\n' +
-	'}\n' +
-	'\n' +
-	'subscription {\n' +
-	'    # ⚠ 把下面这行的 URL 换成你机场的订阅链接，然后保存。\n' +
-	"    my_airport: 'https://example.com/sub'\n" +
-	'}\n' +
-	'\n' +
-	'dns {\n' +
-	'    # 国内域名走 cndns 解析，其余走 fallbackdns，避免 DNS 污染。\n' +
-	'    ipversion_prefer: 4\n' +
-	'    response_ttl: 0\n' +
-	'    upstream {\n' +
-	"        cndns: 'udp://dns.alidns.com:53'\n" +
-	"        fallbackdns: 'tcp+udp://dns.google:53'\n" +
-	'    }\n' +
-	'    routing {\n' +
-	'        request {\n' +
-	'            qname(geosite:cn) -> cndns\n' +
-	'            fallback: fallbackdns\n' +
-	'        }\n' +
-	'    }\n' +
-	'}\n' +
-	'\n' +
-	'group {\n' +
-	'    # 节点分组：filter 决定用订阅里的哪些节点，policy 决定怎么选（min_moving_avg = 自动挑最快）。\n' +
-	'    proxy {\n' +
-	'        filter: subtag(my_airport)\n' +
-	'        policy: min_moving_avg\n' +
-	'    }\n' +
-	'}\n' +
-	'\n' +
-	'routing {\n' +
-	'    # 分流规则：从上往下匹配，命中即停，最后由 fallback 兜底。\n' +
-	'    # 想让某个网站直连，在 fallback 之前加一行，例如：domain(example.com) -> direct\n' +
-	'    pname(NetworkManager) -> direct\n' +
-	'    dip(224.0.0.0/3) -> direct\n' +
-	'    dip(255.255.255.255/32) -> direct\n' +
-	"    dip('ff00::/8') -> direct\n" +
-	'    dip(geoip:private) -> direct\n' +
-	'    l4proto(udp) && dport(123) -> direct\n' +
-	'    domain(connectivitycheck.gstatic.com) -> direct\n' +
-	'    domain(msftconnecttest.com) -> direct\n' +
-	'    dip(geoip:cn) -> direct\n' +
-	'    domain(geosite:cn) -> direct\n' +
-	'    fallback: proxy\n' +
-	'}\n';
+/* 适合直接导入的默认模板。用户只需替换订阅地址并确认内网接口。 */
+const DEFAULT_TEMPLATE = `# luci-app-daede 默认配置
+# 请先替换订阅地址，再按设备实际情况确认内网接口。
+global {
+    log_level: info
+
+    tproxy_port: 12345
+    tproxy_port_protect: true
+    so_mark_from_dae: 0
+    allow_insecure: false
+
+    # 单网卡设备常见为 br-lan 或 eth0，多网卡设备请选择实际 LAN 接口。
+    lan_interface: br-lan
+    # 保持 auto，由 dae 自动识别外网接口。
+    wan_interface: auto
+
+    auto_config_kernel_parameter: true
+    disable_waiting_network: true
+
+    dial_mode: domain
+    sniffing_timeout: 30ms
+
+    tcp_check_url: 'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'
+    tcp_check_http_method: HEAD
+    udp_check_dns: 'dns.google:53,8.8.8.8,2001:4860:4860::8888'
+
+    check_interval: 30s
+    check_tolerance: 50ms
+
+    tls_implementation: tls
+}
+
+subscription {
+    # 请替换成真实订阅地址。
+    my_sub: '你的订阅地址'
+}
+
+dns {
+    # 双栈网络保持注释；只使用 IPv4 时可取消下一行注释。
+    # ipversion_prefer: 4
+
+    optimistic_cache: true
+    optimistic_cache_ttl: 60
+    max_cache_size: 65536
+
+    upstream {
+        alidns: 'udp://223.5.5.5:53'
+        googledns: 'tcp+udp://dns.google:53'
+    }
+
+    routing {
+        request {
+            qname(geosite:category-ads) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qtype(https) -> reject
+
+            qname(geosite:cn) -> alidns
+            fallback: googledns
+        }
+
+        response {
+            upstream(googledns) -> accept
+            ip(geoip:private) && !qname(geosite:cn) -> googledns
+            fallback: accept
+        }
+    }
+}
+
+group {
+    proxy {
+        policy: min_moving_avg
+        filter: subtag(my_sub)
+    }
+
+    us {
+        policy: min_moving_avg
+        filter: subtag(my_sub) && name(regex: '(?i)^us-')
+    }
+
+    sg {
+        policy: min_moving_avg
+        filter: subtag(my_sub) && name(regex: '(?i)^sg-')
+    }
+
+    hk {
+        policy: min_moving_avg
+        filter: subtag(my_sub) && name(regex: '(?i)^hk-')
+    }
+
+    jp {
+        policy: min_moving_avg
+        filter: subtag(my_sub) && name(regex: '(?i)^jp-')
+    }
+}
+
+routing {
+    pname(NetworkManager, systemd-resolved, dnsmasq) -> must_direct
+
+    # IPv4 和 IPv6 组播流量直连。
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # IPv6 本机、链路本地和本地唯一本地地址直连。
+    dip(
+        '::1/128',
+        'fe80::/10',
+        'fc00::/7'
+    ) -> direct
+
+    dip(geoip:private) -> direct
+
+    dscp(0x4) -> direct
+    l4proto(udp) && dport(123) -> direct
+    l4proto(udp) && dport(443) -> block
+
+    # 操作系统联网检测直连。
+    domain(
+        full: connectivitycheck.gstatic.com,
+        full: msftconnecttest.com,
+        full: captive.apple.com
+    ) -> direct
+
+    # 广告域名拦截。
+    domain(
+        geosite:category-ads,
+        geosite:category-ads-all
+    ) -> block
+
+    # 自定义 AI 服务。
+    domain(
+        full: ai.igeek.ing,
+        full: ip.igeek.ing,
+        full: ip.palees.com
+    ) -> us
+
+    # Apple Intelligence、Siri 和 Private Relay。
+    domain(
+        suffix: guzzoni.apple.com,
+        suffix: apple-relay.apple.com,
+        suffix: apple-relay.fastly-edge.com,
+        suffix: apple-relay.cloudflare.com,
+        full: gsa.apple.com
+    ) -> us
+
+    # OpenAI、ChatGPT 和 Sora。
+    domain(
+        suffix: openai.com,
+        suffix: chatgpt.com,
+        suffix: ai.com,
+        suffix: oaistatic.com,
+        suffix: oaiusercontent.com,
+        suffix: sora.com
+    ) -> us
+
+    domain(
+        full: openaicom.imgix.net,
+        full: openaiapi-site.azureedge.net,
+        full: chat.openai.com.cdn.cloudflare.net,
+        full: openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net,
+        full: openaicomproductionae4b.blob.core.windows.net,
+        full: production-openaicom-storage.azureedge.net
+    ) -> us
+
+    # Claude、Anthropic 和 MCP。
+    domain(
+        suffix: anthropic.com,
+        suffix: claude.ai,
+        suffix: claude.com,
+        suffix: clau.de,
+        suffix: claudeusercontent.com,
+        suffix: claudemcpclient.com,
+        suffix: claudemcpcontent.com,
+        suffix: modelcontextprotocol.io
+    ) -> us
+
+    domain(
+        full: anthropic.com.cdn.cloudflare.net,
+        full: servd-anthropic-website.b-cdn.net,
+        full: anthropic.auth0.com,
+        full: anthropic-com.ghost.io
+    ) -> us
+
+    dip(160.79.104.0/21, '2607:6bc0::/32') -> us
+
+    # Gemini、Google AI 和 NotebookLM。
+    domain(
+        suffix: gemini.google.com,
+        suffix: gemini.google,
+        suffix: generativeai.google,
+        suffix: deepmind.com,
+        suffix: deepmind.google,
+        suffix: bard.google.com,
+        suffix: ai.studio,
+        suffix: aistudiocdn.com,
+        suffix: notebooklm.google.com
+    ) -> us
+
+    domain(
+        full: gemini.gstatic.com,
+        full: ai.google.dev,
+        full: aistudio.google.com,
+        full: makersuite.google.com,
+        full: alkalimakersuite-pa.clients6.google.com,
+        full: proactivebackend-pa.googleapis.com,
+        full: generativelanguage.googleapis.com,
+        full: colab.research.google.com,
+        suffix: colab.google
+    ) -> us
+
+    # 其他 AI 服务。
+    domain(
+        suffix: perplexity.ai,
+        suffix: meta.ai,
+        suffix: x.ai,
+        suffix: mistral.ai
+    ) -> us
+
+    # GitHub Copilot。
+    domain(
+        full: api.githubcopilot.com,
+        full: copilot-proxy.githubusercontent.com
+    ) -> us
+
+    # Cursor 和 JetBrains AI。
+    domain(
+        suffix: cursor.com,
+        suffix: cursor.sh,
+        suffix: jetbrains.ai,
+        suffix: grazie.ai,
+        suffix: grazie.aws.intellij.net
+    ) -> us
+
+    # Groq 和 Together AI。
+    domain(
+        full: api.groq.com,
+        full: console.groq.com,
+        full: api.together.xyz
+    ) -> us
+
+    # Microsoft Copilot 和 Azure AI。
+    domain(
+        suffix: copilot.cloud.microsoft,
+        suffix: copilot.microsoft.com,
+        suffix: ai.azure.com,
+        full: sydney.bing.com
+    ) -> us
+
+    # 人机验证服务。
+    domain(
+        suffix: hcaptcha.com,
+        full: client-api.arkoselabs.com
+    ) -> us
+
+    # 国内服务直连。
+    domain(
+        geosite:apple@cn,
+        geosite:microsoft@cn,
+        geosite:steam@cn,
+        geosite:tencent,
+        geosite:alibaba,
+        geosite:category-games@cn
+    ) -> direct
+
+    domain(
+        suffix: cdn-go.cn,
+        suffix: smtcdns.com,
+        suffix: smtcdns.net,
+        suffix: cm.steampowered.com,
+        suffix: steamserver.net
+    ) -> direct
+
+    # 小米服务强制直连。
+    domain(
+        suffix: miwifi.com,
+        suffix: cdn.pandora.xiaomi.com,
+        suffix: tv.global.mi.com
+    ) -> direct(must)
+
+    # 常用境外服务走代理。
+    domain(
+        geosite:openai,
+        geosite:github,
+        geosite:docker,
+        geosite:google,
+        geosite:telegram
+    ) -> proxy
+
+    domain(
+        suffix: gradle.org,
+        suffix: linux.do
+    ) -> proxy
+
+    domain(keyword: tradingview) -> proxy
+
+    domain(geosite:geolocation-!cn) -> proxy
+
+    # 非常见端口直连。
+    !dport(
+        21, 22, 23, 53, 80, 123, 143, 194,
+        443, 465, 587, 853, 993, 995, 998,
+        2052, 2053, 2082, 2083, 2086,
+        2095, 2096, 3000, 8080, 8443,
+        8787, 8880, 8888
+    ) -> direct
+
+    # 国内 IPv4 和 IPv6 地址及域名直连。
+    dip(geoip:cn) -> direct
+    domain(geosite:cn) -> direct
+
+    fallback: proxy
+}
+`;
 
 function detectPlaceholders(text) {
 	if (!text) return [];
