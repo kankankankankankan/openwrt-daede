@@ -109,7 +109,11 @@ return view.extend({
 			children.push(E('div', { 'class': 'dd-card dd-warning' }, _('Selected backend is not installed. Install dae or daed from the package feed first.')));
 		} else if (ctx.name === 'dae') {
 			children.push(member.render(ctx));
-			const cloudOnly = function(node) { if (node) node.classList.add('dd-cloud-hidden'); return node; };
+			const cloudOnly = function(node) {
+				if (node && typeof node.then === 'function') return node.then(cloudOnly);
+				if (node && node.classList && typeof node.classList.add === 'function') node.classList.add('dd-cloud-hidden');
+				return node;
+			};
 			// 2026-09-11: Cloud configurations have one writer; fail closed if status is unavailable.
 			if (!ctx.memberError && ctx.memberState.mode !== 'cloud') {
 				children.push(daeView.renderDaeImportBanner());
