@@ -99,9 +99,11 @@ function render(ctx) {
 	let card;
 	const modeBadge = E('span', { 'class': 'dd-member-mode' + (state.mode === 'cloud' ? ' dd-member-mode-cloud' : '') });
 	function updateMode() {
-		modeBadge.textContent = state.mode === 'cloud' ? '云端配置' : '本地配置';
-		modeBadge.className = 'dd-member-mode' + (state.mode === 'cloud' ? ' dd-member-mode-cloud' : '');
-		modeBadge.title = state.mode === 'cloud' ? '规则由会员服务同步，本地编辑已锁定' : '规则由本地表单或配置编辑器管理';
+		const cloud = state.logged_in && state.mode === 'cloud';
+		modeBadge.textContent = state.logged_in ? (cloud ? '云端配置' : '本地配置') : '';
+		modeBadge.className = 'dd-member-mode' + (cloud ? ' dd-member-mode-cloud' : '');
+		modeBadge.hidden = !state.logged_in;
+		modeBadge.title = cloud ? '规则由会员服务同步，本地编辑已锁定' : '';
 	}
 	updateMode();
 	const memberName = E('span', { 'class': 'dd-member-name' });
@@ -233,7 +235,7 @@ function render(ctx) {
 	const credentials = E('div', { 'class': 'dd-member-fields', 'style': state.logged_in ? 'display:none' : '' }, [
 		field('系统地址', url),
 		E('div', { 'class': 'dd-member-grid' }, [field('账号', username), field('密码', password), field('LAN 接口', lan)]),
-		E('div', { 'class': 'dd-member-actions' }, [signIn, recommend, logout]),
+		E('div', { 'class': 'dd-member-actions' }, [signIn, logout, recommend]),
 		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。')
 	]);
 	const settings = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '账户设置');
