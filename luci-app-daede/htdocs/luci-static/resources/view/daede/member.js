@@ -206,6 +206,7 @@ function render(ctx) {
 			state.warning = result.warning || '';
 			stateLine.textContent = stateText();
 			local.hidden = false;
+			if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: state }));
 			feedback.textContent = state.warning || '同步成功，dae 已启用并开始运行。';
 		});
 	}, true);
