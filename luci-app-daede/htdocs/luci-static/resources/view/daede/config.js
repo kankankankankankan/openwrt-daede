@@ -3,6 +3,7 @@
 'use strict';
 'require uci';
 'require network';
+'require firewall';
 'require view';
 'require view.daede.backend as backend';
 'require view.daede.styles as styles';
@@ -10,6 +11,7 @@
 'require view.daede.dae as daeView';
 'require view.daede.daed as daedView';
 'require view.daede.member as member';
+'require view.daede.lan-interface as lanInterface';
 
 return view.extend({
 	_loadContext: function() {
@@ -17,11 +19,27 @@ return view.extend({
 			return uci.load(ctx.backend.uci).catch(function() {}).then(function() {
 				/* enumerate L3 devices so the dae LAN/WAN fields offer a dropdown
 				   (still free-text, so undetectable WANs can be typed) */
-				return network.getDevices().catch(function() { return []; }).then(function(devs) {
+				return Promise.all([
+					network.getDevices().catch(function() { return []; }),
+					network.getNetworks().catch(function() { return []; }),
+					firewall.getZone('lan').catch(function() { return null; })
+				]).then(function(data) {
+					const devs = data[0], nets = data[1];
 					ctx.netDevs = (devs || []).map(function(d) { return d.getName(); })
 						.filter(function(n) { return n && n !== 'dae0'; }).sort();
+					const savedLan = uci.get('dae', 'config', 'lan_interface') || '';
+					const recommend = function(saved) {
+						return lanInterface.recommendLanInterface({
+							saved: saved,
+							devices: ctx.netDevs,
+							networks: nets,
+							zones: data[2] ? [data[2]] : []
+						});
+					};
+					ctx.lanRecommendation = recommend(savedLan);
 					return member.getStatus().then(function(state) {
 						ctx.memberState = state;
+						ctx.memberLanRecommendation = recommend(state.lan_interface || savedLan);
 					}).catch(function(error) {
 						ctx.memberError = error.message || '会员配置服务不可用';
 					}).then(function() { return ctx; });
@@ -80,6 +98,7 @@ return view.extend({
 		const children = [
 			E('style', {}, styles.CSS),
 			widgets.renderStatusCard(ctx, listenAddr),
+
 			widgets.renderBackendSwitcher(ctx, redrawBackend, self._backendHint)
 		].filter(function(node) { return !!node; });
 

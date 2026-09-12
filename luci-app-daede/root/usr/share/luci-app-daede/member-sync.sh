@@ -61,22 +61,65 @@ load_session() {
  origin_valid "$URL"
 }
 check_session() {
+ QUOTA_STATUS=unavailable
  cp "$STATE/cookie" "$WORK/cookie" || return 1
  request GET /api/state "$WORK/cookie" '' 1048576 || return 1
  json_load "$(cat "$WORK/response")" || return 1
+ json_get_type response_type ok; json_get_var response_ok ok
+ [ "$response_type" = boolean ] && [ "$response_ok" = 1 ] || return 1
  # /api/state returns user:null when unauthenticated.
  json_get_type session_type user
- [ "$session_type" = object ]
+ if [ "$session_type" = null ]; then QUOTA_STATUS=unauthenticated; return 1; fi
+ [ "$session_type" = object ] || return 1
+ QUOTA_STATUS=available
+}
+# Read only approved display fields from the already verified /api/state response.
+quota_text() {
+ local type value
+ json_get_type type "$1"; [ "$type" = string ] || return 0
+ json_get_var value "$1"; printf '%s' "$value"
+}
+quota_bytes() {
+ local type value
+ json_get_type type "$1"
+ case "$type" in int|double) ;; *) return 0;; esac
+ json_get_var value "$1"
+ case "$value" in ''|*[!0-9]*) return 0;; esac
+ printf '%s' "$value"
+}
+read_quota() {
+ json_select user || return
+ q_member="$(quota_text username)"
+ q_plan="$(quota_text planName)"; q_expiry="$(quota_text expiresAt)"
+ q_expiry_text="$(quota_text expiresText)"; q_updated="$(quota_text updatedAt)"
+ json_select usage || return 0
+ q_upload="$(quota_bytes upload)"; q_download="$(quota_bytes download)"
+ q_used="$(quota_bytes used)"; q_total="$(quota_bytes total)"; q_remaining="$(quota_bytes remaining)"
+}
+add_quota() {
+ json_add_object quota
+ json_add_string memberName "$q_member"
+ json_add_string planName "$q_plan"; json_add_string expiresAt "$q_expiry"
+ json_add_string expiresText "$q_expiry_text"; json_add_string updatedAt "$q_updated"
+ # jshn integers are 32-bit on some routers; doubles preserve normal byte counters.
+ [ -z "$q_upload" ] || json_add_double upload "$q_upload"
+ [ -z "$q_download" ] || json_add_double download "$q_download"
+ [ -z "$q_used" ] || json_add_double used "$q_used"
+ [ -z "$q_total" ] || json_add_double total "$q_total"
+ [ -z "$q_remaining" ] || json_add_double remaining "$q_remaining"
+ json_close_object
 }
 service() { "$ROOT/etc/init.d/dae" "$@" >/dev/null 2>&1; }
 case "$1" in
  status)
-  logged=0; note="$(get daede.member.warning)"
+  logged=0; QUOTA_STATUS=unauthenticated; note="$(get daede.member.warning)"
   if load_session; then
-   if check_session; then logged=1; else note='Session could not be verified. Log in again if synchronization fails.'; fi
+   if check_session; then logged=1; read_quota; else note='Session could not be verified. Log in again if synchronization fails.'; fi
   fi
   URL="$(get daede.member.url)"
   json_init; json_add_boolean ok 1; json_add_boolean logged_in "$logged"
+  json_add_string quota_status "$QUOTA_STATUS"
+  [ "$logged" != 1 ] || add_quota
   json_add_string url "$URL"; json_add_string lan_interface "$(get daede.member.lan_interface)"
   json_add_string mode "$(get daede.member.mode)"; json_add_string last_sync "$(get daede.member.last_sync)"
   json_add_string warning "$note"; running=0; service running && running=1; json_add_boolean running "$running"; json_dump;;
@@ -123,7 +166,10 @@ case "$1" in
   if [ "$STALE" = 1 ] || [ "$STALE" = true ]; then
    WARNING='Upstream unavailable: this configuration uses a saved subscription snapshot. Review the member website.'
   elif [ "$wt" = array ]; then
-   WARNING='规则适配报告已生成，请先在会员配置中心查看后再使用。'
+   json_get_keys warning_keys warnings
+   if [ -n "$warning_keys" ]; then
+    WARNING='规则适配报告已生成，请先在会员配置中心查看后再使用。'
+   fi
   fi
   request GET "/api/dae/$JOB/config.dae" "$WORK/cookie" '' 8388608 || error 'Configuration download failed; current configuration was kept'
   [ -s "$WORK/response" ] || error 'Downloaded configuration is empty'

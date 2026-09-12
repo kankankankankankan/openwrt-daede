@@ -574,16 +574,26 @@ function renderDaeForms(ctx) {
 		o = s.option(form.DummyValue, '_network_topology_help', _('Network topology guidance'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			const physical = netDevs.filter(function(name) { return !/^(lo|br-|docker|dae|tun|tap|veth)/i.test(name); });
-			if (physical.length <= 1)
-				return '<strong>单网卡旁路由：</strong>LAN 请选择连接内网的桥接接口，通常是 br-lan；WAN 保持 auto。上级路由器继续负责拨号和默认网关。';
-			return '<strong>多网卡正常路由：</strong>LAN 请选择内网接口，WAN 请选择外网接口或 VLAN；确认默认路由和防火墙都指向 WAN。';
+			return '<strong>请按实际网络拓扑选择：</strong>LAN 应连接防火墙 LAN 区域使用的设备；WAN 可保持 auto 或选择实际外网设备。推荐仅基于当前 LuCI 网络与防火墙状态，复杂拓扑请手动确认。';
 		};
 		o = s.option(form.Value, 'lan_interface', _('LAN interface'),
 			_('单网卡旁路由选择内网桥。多网卡正常路由选择连接 LAN 的接口。'));
-		o.default = 'br-lan';
+		const lanOption = o;
+		const lanRecommendation = (ctx && ctx.lanRecommendation) || { value: '', status: 'manual', message: '没有唯一可验证的 LAN 接口，请手动选择。' };
+		lanOption.description = (lanRecommendation.message || '').replace(/[&<>"']/g, function(c) {
+			return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+		});
+		o.default = lanRecommendation.value || '';
 		o.placeholder = 'br-lan';
 		netDevs.forEach(function(d) { o.value(d); });
+		if (lanRecommendation.recommended) {
+			o = s.option(form.Button, '_use_lan_recommendation', _('LAN 接口推荐'));
+			o.inputtitle = _('使用推荐接口');
+			o.onclick = function() {
+				var widget = lanOption.getUIElement('config');
+				if (widget && widget.setValue) widget.setValue(lanRecommendation.recommended);
+			};
+		}
 		o = s.option(form.Value, 'wan_interface', _('WAN interface'),
 			_('单网卡旁路由保持 auto。多网卡正常路由选择外网接口或 VLAN，例如 eth0.2。'));
 		o.default = 'auto';

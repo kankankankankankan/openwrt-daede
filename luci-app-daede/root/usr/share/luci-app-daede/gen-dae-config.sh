@@ -18,6 +18,7 @@
 . /lib/functions.sh
 
 CONFIG_DAE="/etc/dae/config.dae"
+SYS_CLASS_NET="/sys/class/net"
 TMP_GEN="/tmp/dae-gen.dae"
 DAE_BIN="/usr/bin/dae"
 DAE_INITD="/etc/init.d/dae"
@@ -199,7 +200,22 @@ generate() {
 	config_get dial_mode config dial_mode "domain"
 	config_get log_level config log_level "info"
 	config_get wan_interface config wan_interface "auto"
-	config_get lan_interface config lan_interface "br-lan"
+	config_get lan_interface config lan_interface ""
+	# 仅在生成前检查，不自动改选接口；失败时保留正在使用的配置。
+	case "$lan_interface" in
+		''|*[!A-Za-z0-9_.:,\ -]*) printf '%s\n' "LAN 接口无效：${lan_interface}，请手动选择" >&2; return 1 ;;
+	esac
+	local lan_device lan_devices normalized_lan=""
+	lan_devices="$(printf '%s' "$lan_interface" | tr ',' ' ')"
+	for lan_device in $lan_devices; do
+		if [ "$lan_device" = auto ] || [ ! -e "$SYS_CLASS_NET/$lan_device" ]; then
+			printf '%s\n' "LAN 接口不存在或不可用：${lan_device}，已保留现有配置" >&2
+			return 1
+		fi
+		normalized_lan="${normalized_lan}${normalized_lan:+,}${lan_device}"
+	done
+	[ -n "$normalized_lan" ] || { printf '%s\n' '请选择 LAN 接口，已保留现有配置' >&2; return 1; }
+	lan_interface="$normalized_lan"
 
 	SUB_BUF=""; NODE_BUF=""; GROUP_BUF=""; FIRST_GROUP=""; GROUP_NAMES_SEEN=""
 	SUB_TAGS=""

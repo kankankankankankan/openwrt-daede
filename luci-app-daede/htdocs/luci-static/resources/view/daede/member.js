@@ -37,16 +37,89 @@ function login(values) {
 		.finally(function() { return fs.remove(file).catch(function() {}); });
 }
 
+function usageBytes(value) {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function formatBytes(value) {
+	if (value === null) return '未提供';
+	const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+	let index = 0;
+	while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
+	return Number(value.toFixed(2)) + ' ' + units[index];
+}
+
+function renderUsage(ctx) {
+	const state = ctx.memberState || {};
+	const quota = state.quota || {};
+	const upload = usageBytes(quota.upload), download = usageBytes(quota.download);
+	let used = usageBytes(quota.used);
+	if (used === null && upload !== null && download !== null) used = usageBytes(upload + download);
+	const total = usageBytes(quota.total) > 0 ? quota.total : null;
+	const percent = used !== null && total > 0 ? used / total * 100 : null;
+	const remaining = percent !== null ? Math.max(0, total - used) : usageBytes(quota.remaining);
+	// LuCI E() can interpret string children as markup. Assign all labels as text.
+	function text(tag, attrs, value) {
+		const node = E(tag, attrs); node.textContent = value; return node;
+	}
+	let message = '';
+	if (ctx.memberError || state.quota_status === 'unavailable') message = '暂时无法获取会员用量，请稍后刷新页面';
+	else if (!state.logged_in) message = '登录会员后查看订阅用量';
+	else if (!state.quota) message = '会员服务暂未提供用量';
+	if (message) return E('section', { 'class': 'dd-quota', 'aria-label': '会员订阅用量' }, [
+		text('span', { 'class': 'dd-quota-label' }, '会员流量'),
+		text('span', { 'class': 'dd-quota-empty' }, message)
+	]);
+	const summary = [text('span', { 'class': 'dd-quota-amount' }, '已用 ' + formatBytes(used) + ' / ' + formatBytes(total))];
+	if (percent !== null) summary.push(E('span', { 'class': 'dd-quota-meter' }, [
+		E('span', {
+			'class': 'dd-quota-track', 'role': 'progressbar', 'aria-label': '会员流量已用比例',
+			'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.min(100, percent)
+		}, [E('span', { 'class': 'dd-quota-fill', 'style': 'width:' + Math.min(100, percent) + '%' })]),
+		text('span', { 'class': 'dd-quota-percent' }, percent > 0 && percent < 0.1 ? '<0.1%' : Number(percent.toFixed(1)) + '%')
+	]));
+	const nodes = [E('div', { 'class': 'dd-quota-row' }, [
+		text('span', { 'class': 'dd-quota-label' }, '套餐'),
+		text('span', { 'class': 'dd-quota-plan' }, typeof quota.planName === 'string' && quota.planName ? quota.planName : '未提供'),
+		E('div', { 'class': 'dd-quota-summary' }, summary)
+	])];
+	const expires = typeof quota.expiresAt === 'string' ? new Date(quota.expiresAt) : null;
+	const expiry = typeof quota.expiresText === 'string' && quota.expiresText ? quota.expiresText :
+		expires && Number.isFinite(expires.getTime()) ? '到期 ' + expires.toLocaleDateString() : '到期时间未提供';
+	const warning = percent >= 100 ? ' · 额度已用尽' : percent >= 80 ? ' · 流量即将用尽' : '';
+	nodes.push(E('div', { 'class': 'dd-quota-row dd-quota-meta' }, [
+		text('span', {}, '剩余 ' + formatBytes(remaining) + warning),
+		text('span', {}, expiry)
+	]));
+	return E('section', { 'class': 'dd-quota' + (warning ? ' dd-quota-warning' : ''), 'aria-label': '会员订阅用量' }, nodes);
+}
+
 function render(ctx) {
 	const state = ctx.memberState || {};
+	const modeBadge = E('span', { 'class': 'dd-member-mode' + (state.mode === 'cloud' ? ' dd-member-mode-cloud' : '') });
+	function updateMode() {
+		modeBadge.textContent = state.mode === 'cloud' ? '云端配置' : '本地配置';
+		modeBadge.className = 'dd-member-mode' + (state.mode === 'cloud' ? ' dd-member-mode-cloud' : '');
+		modeBadge.title = state.mode === 'cloud' ? '规则由会员服务同步，本地编辑已锁定' : '规则由本地表单或配置编辑器管理';
+	}
+	updateMode();
+	const memberName = E('span', { 'class': 'dd-member-name' });
+	memberName.textContent = state.logged_in && typeof (state.quota || {}).memberName === 'string' ? state.quota.memberName : '';
+	memberName.title = memberName.textContent ? '会员：' + memberName.textContent : '';
 	const url = E('input', { 'type': 'url', 'class': 'cbi-input-text', 'placeholder': 'https://规则系统域名', 'value': state.url || '', 'autocomplete': 'url' });
 	const username = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'autocomplete': 'username' });
 	const password = E('input', { 'type': 'password', 'class': 'cbi-input-password', 'autocomplete': 'current-password' });
 	const lan = E('select', { 'class': 'cbi-input-select' });
+	lan.appendChild(E('option', { 'value': '' }, '请选择 LAN 接口'));
 	(ctx.netDevs || []).forEach(function(name) { lan.appendChild(E('option', { 'value': name }, name)); });
-	lan.value = state.lan_interface || 'br-lan';
-	if (!lan.value && lan.options.length) lan.selectedIndex = 0;
-	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || state.warning || '');
+	const recommendation = ctx.memberLanRecommendation || ctx.lanRecommendation || { value: '', status: 'manual', message: '没有唯一可验证的 LAN 接口，请手动选择。' };
+	const selectedLan = state.lan_interface || recommendation.value || '';
+	[selectedLan, recommendation.recommended].forEach(function(name) {
+		if (name && !Array.prototype.some.call(lan.options, function(o) { return o.value === name; }))
+			lan.appendChild(E('option', { 'value': name }, name));
+	});
+	lan.value = selectedLan;
+	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || state.warning || recommendation.message || '');
 	const buttons = [];
 	function action(label, handler, primary) {
 		const button = E('button', { 'type': 'button', 'class': 'cbi-button ' + (primary ? 'cbi-button-action' : 'cbi-button-neutral') }, label);
@@ -82,9 +155,8 @@ function render(ctx) {
 		}
 		const rules = !state.last_sync ? '未同步' : state.warning ? '需检查' : '已加载';
 		return (state.logged_in ? '已连接' : '未登录') + ' · ' +
-			(state.mode === 'cloud' ? '云端配置' : '本地配置') +
-			(recent ? ' · 最近同步 ' + recent : '') +
-			' · 规则状态：' + rules;
+			(recent ? '最近同步 ' + recent + ' · ' : '') +
+			'规则状态：' + rules;
 	}
 	const stateLine = E('p', { 'class': 'dd-member-state' }, stateText());
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
@@ -92,14 +164,24 @@ function render(ctx) {
 			throw new Error('请填写系统地址、账号、密码并选择 LAN 接口');
 		return login({ url: url.value.trim(), username: username.value.trim(), password: password.value, lan_interface: lan.value }).then(reload);
 	}, !state.logged_in);
+	const recommend = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '使用推荐接口');
+	recommend.disabled = !recommendation.recommended;
+	recommend.addEventListener('click', function() {
+		if (recommendation.recommended) {
+			lan.value = recommendation.recommended;
+			feedback.textContent = '已选择推荐接口，登录后生效；现有运行配置尚未修改。';
+		}
+	});
 	const sync = action('同步并启用', function() {
 		return invoke('sync').then(function(result) {
 			state.logged_in = true;
 			state.mode = 'cloud';
+			updateMode();
 			state.last_sync = result.last_sync || new Date().toISOString();
+			state.warning = result.warning || '';
 			stateLine.textContent = stateText();
 			local.hidden = false;
-			feedback.textContent = '同步成功，dae 已启用并开始运行。';
+			feedback.textContent = state.warning || '同步成功，dae 已启用并开始运行。';
 		});
 	}, true);
 	sync.disabled = !state.logged_in || !!ctx.memberError;
@@ -121,7 +203,7 @@ function render(ctx) {
 	const credentials = E('div', { 'class': 'dd-member-fields', 'style': state.logged_in ? 'display:none' : '' }, [
 		field('系统地址', url),
 		E('div', { 'class': 'dd-member-grid' }, [field('账号', username), field('密码', password), field('LAN 接口', lan)]),
-		E('div', { 'class': 'dd-member-actions' }, [signIn, logout]),
+		E('div', { 'class': 'dd-member-actions' }, [signIn, recommend, logout]),
 		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。')
 	]);
 	const settings = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '账户设置');
@@ -131,13 +213,16 @@ function render(ctx) {
 		credentials.style.display = opening ? 'grid' : 'none';
 		settings.textContent = opening ? '收起设置' : '账户设置';
 	});
-	return E('div', { 'class': 'dd-card' }, [
-		E('h4', { 'class': 'dd-card-title' }, '会员配置'),
+	return E('div', { 'class': 'dd-card dd-member-card' }, [
+		E('div', { 'class': 'dd-member-head' }, [
+			E('h4', { 'class': 'dd-card-title' }, '会员配置'), memberName, modeBadge
+		]),
 		stateLine,
+		renderUsage(ctx),
 		credentials,
 		E('div', { 'class': 'dd-member-actions' }, [sync, settings, local]),
 		feedback
 	]);
 }
 
-return baseclass.extend({ getStatus: getStatus, assertLocal: assertLocal, render: render });
+return baseclass.extend({ getStatus: getStatus, assertLocal: assertLocal, render: render, renderUsage: renderUsage });

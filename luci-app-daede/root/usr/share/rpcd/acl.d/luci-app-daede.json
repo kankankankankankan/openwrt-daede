@@ -36,7 +36,7 @@
 			"ubus": {
 				"service": [ "list" ]
 			},
-			"uci": [ "dae", "daed", "daede" ]
+			"uci": [ "dae", "daed", "daede", "network", "firewall" ]
 		},
 		"write": {
 			"file": {

@@ -27,6 +27,88 @@ function setup(response = { ok: true, mode: 'local' }) {
   return { api, calls, elements, fs };
 }
 
+function textOf(node) {
+  return typeof node === 'string' ? node : node.textContent + (Array.isArray(node.children) ? node.children.map(textOf).join(' ') : '');
+}
+
+test('quota card uses real large byte counters and ignores server percent and labels', () => {
+  const s = setup();
+  assert.equal(typeof s.api.renderUsage, 'function');
+  const card = s.api.renderUsage({ memberState: { logged_in: true, quota: {
+    planName: '<img src=x onerror=alert(1)>', used: 5 * 1024 ** 3, total: 10 * 1024 ** 3,
+    remaining: 1, percent: 99, usedText: 'FAKE', expiresText: '2027-01-01 到期'
+  } } });
+  const text = textOf(card);
+  assert.match(text, /5 GiB/);
+  assert.match(text, /10 GiB/);
+  assert.match(text, /50%/);
+  assert.match(text, /剩余 5 GiB/);
+  assert.match(text, /2027-01-01 到期/);
+  assert.ok(s.elements.some(e => e.textContent === '<img src=x onerror=alert(1)>'));
+  assert.ok(!s.elements.some(e => e.tag === 'img' || e.attrs.innerHTML));
+  assert.equal(s.elements.filter(e => e.attrs.role === 'progressbar').length, 1);
+  assert.equal(s.elements.find(e => e.attrs.role === 'progressbar').attrs['aria-valuenow'], 50);
+  assert.doesNotMatch(text, /FAKE|99%/);
+  assert.equal(s.calls.length, 0);
+});
+
+test('quota states hide stale counters when logged out or status fails, without retries', () => {
+  const stale = { used: 5, total: 10, planName: 'STALE' };
+  for (const [ctx, message] of [
+    [{ memberState: { logged_in: false, quota: stale } }, /登录会员后查看/],
+    [{ memberState: { logged_in: false, quota_status: 'unavailable', quota: stale } }, /暂时无法获取/],
+    [{ memberState: { logged_in: true, quota: stale }, memberError: 'busy' }, /暂时无法获取/],
+    [{ memberState: { logged_in: true } }, /暂未提供用量/]
+  ]) {
+    const s = setup(); const card = s.api.renderUsage(ctx);
+    assert.match(textOf(card), message);
+    assert.doesNotMatch(textOf(card), /STALE|%|0 B/);
+    assert.ok(!s.elements.some(e => e.attrs.role === 'progressbar'));
+    assert.equal(s.calls.length, 0);
+  }
+});
+
+test('quota partial counters never become fake zero or unlimited, and complete upload/download can supply used', () => {
+  for (const invalid of [undefined, null, '', '0', false, -1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const s = setup();
+    const card = s.api.renderUsage({ memberState: { logged_in: true, quota: { used: invalid, total: 100 } } });
+    assert.match(textOf(card), /已用 未提供/);
+    assert.doesNotMatch(textOf(card), /%|已用 0 B|无限/);
+    assert.ok(!s.elements.some(e => e.attrs.role === 'progressbar'));
+  }
+  for (const total of [undefined, null, 0]) {
+    const s = setup();
+    const card = s.api.renderUsage({ memberState: { logged_in: true, quota: { used: 0, total } } });
+    assert.match(textOf(card), /已用 0 B \/ 未提供/);
+    assert.doesNotMatch(textOf(card), /%|无限/);
+    assert.ok(!s.elements.some(e => e.attrs.role === 'progressbar'));
+  }
+  const s = setup();
+  const card = s.api.renderUsage({ memberState: { logged_in: true, quota: { upload: 10, download: 20, total: 100 } } });
+  assert.match(textOf(card), /已用 30 B/);
+  assert.match(textOf(card), /30%/);
+  assert.match(textOf(card), /到期时间未提供/);
+});
+
+test('tiny nonzero usage is not rounded to zero and quota is not a nested card', () => {
+  const s = setup();
+  const card = s.api.renderUsage({ memberState: { logged_in: true, quota: { used: 24 * 1024 ** 2, total: 600 * 1024 ** 3 } } });
+  assert.match(textOf(card), /<0.1%/);
+  assert.ok(!card.attrs.class.split(' ').includes('dd-card'));
+});
+
+test('quota warns at 80 percent, clamps overquota bar, and formats expiry fallback', () => {
+  for (const [used, warning, label] of [[0, false, '0%'], [79, false, '79%'], [80, true, '80%'], [120, true, '120%']]) {
+    const s = setup();
+    const card = s.api.renderUsage({ memberState: { logged_in: true, quota: { used, total: 100, expiresAt: '2027-01-02T00:00:00Z' } } });
+    assert.equal(card.attrs.class.includes('dd-quota-warning'), warning);
+    assert.ok(textOf(card).includes(label));
+    assert.match(textOf(card), /2027/);
+    assert.equal(s.elements.find(e => e.attrs.role === 'progressbar').attrs['aria-valuenow'], Math.min(used, 100));
+    if (used > 100) { assert.match(textOf(card), /额度已用尽/); assert.match(textOf(card), /剩余 0 B/); }
+  }
+});
+
 test('cloud state blocks local writers, local state permits them', async () => {
   await assert.rejects(setup({ ok: true, mode: 'cloud' }).api.assertLocal(), /云端配置/);
   await setup().api.assertLocal();
@@ -46,6 +128,7 @@ test('login stages credentials privately, passes only random identifier, removes
   inputs[0].value = 'https://rules.example';
   inputs[1].value = 'test-member';
   inputs[2].value = 'test secret $()\n"';
+  s.elements.find(e => e.tag === 'select').value = 'br-lan';
   s.elements.find(e => e.textContent === '登录会员').listeners.click();
   await new Promise(resolve => setImmediate(resolve));
   const staged = s.calls.find(c => c.body);
@@ -65,6 +148,7 @@ test('failed login clears input and removes staging file without reload', async 
   s.api.render({ memberState: {}, netDevs: ['br-lan'] });
   const inputs = s.elements.filter(e => e.tag === 'input');
   inputs[0].value = 'https://rules.example'; inputs[1].value = 'test'; inputs[2].value = 'secret';
+  s.elements.find(e => e.tag === 'select').value = 'br-lan';
   s.elements.find(e => e.textContent === '登录会员').listeners.click();
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(s.calls.some(c => c.remove));
@@ -73,9 +157,46 @@ test('failed login clears input and removes staging file without reload', async 
   assert.equal(s.elements.find(e => e.attrs.role === 'status').textContent, '登录失败');
 });
 
+test('successful clean sync updates the rule status and cloud badge immediately', async () => {
+  const s = setup({ ok: true, warning: '', last_sync: '2026-09-12T10:00:00Z' });
+  s.api.render({ memberState: { logged_in: true, mode: 'local', warning: 'old warning', last_sync: '2026-09-11T00:00:00Z' }, netDevs: ['br-lan'] });
+  s.elements.find(e => e.textContent === '同步并启用').listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(s.elements.find(e => e.attrs.class === 'dd-member-state').textContent, /规则状态：已加载/);
+  assert.ok(s.elements.some(e => e.textContent === '云端配置'));
+});
+
 test('sync is disabled when logged out or helper unavailable', () => {
   for (const ctx of [{ memberState: {} }, { memberState: { logged_in: true }, memberError: 'unavailable' }]) {
     const s = setup(); s.api.render({ ...ctx, netDevs: ['br-lan'] });
     assert.equal(s.elements.find(e => e.textContent === '同步并启用').disabled, true);
+  }
+});
+
+test('member recommendation replaces a different saved selection only on click without clearing password or persisting', async () => {
+  const s = setup();
+  s.api.render({ memberState: { lan_interface: 'old-lan' }, netDevs: ['br-lan', 'lan1'], lanRecommendation: { value: 'old-lan', recommended: 'br-lan', status: 'saved', message: '推荐 br-lan' } });
+  const button = s.elements.find(e => e.textContent === '使用推荐接口');
+  const select = s.elements.find(e => e.tag === 'select');
+  const password = s.elements.find(e => e.attrs.type === 'password');
+  password.value = 'test-only';
+  assert.equal(select.value, 'old-lan');
+  assert.ok(select.options.some(o => o.value === 'old-lan'));
+  assert.equal(button.disabled, false);
+  button.listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(select.value, 'br-lan');
+  assert.equal(password.value, 'test-only');
+  assert.equal(s.calls.length, 0);
+});
+
+test('member keeps blank selection when no evidence and preserves a saved fallback absent from device list', () => {
+  for (const saved of ['', 'stale-lan']) {
+    const s = setup();
+    s.api.render({ memberState: {}, netDevs: ['eth0'], lanRecommendation: { value: saved, recommended: '', status: 'manual', message: '请手动选择' } });
+    const select = s.elements.find(e => e.tag === 'select');
+    assert.equal(select.value, saved);
+    assert.ok(select.options.some(o => o.value === saved));
+    assert.equal(s.calls.length, 0);
   }
 });
