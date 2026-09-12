@@ -211,7 +211,7 @@ test('failed login clears input and removes staging file without reload', async 
 test('successful clean sync updates the rule status and cloud badge immediately', async () => {
   const s = setup({ ok: true, warning: '', last_sync: '2026-09-12T10:00:00Z' });
   s.api.render({ memberState: { logged_in: true, mode: 'local', warning: 'old warning', last_sync: '2026-09-11T00:00:00Z' }, netDevs: ['br-lan'] });
-  s.elements.find(e => e.textContent === '同步并启用').listeners.click();
+  s.elements.find(e => e.textContent === '应用云端配置').listeners.click();
   await new Promise(resolve => setImmediate(resolve));
   assert.match(s.elements.find(e => e.attrs.class === 'dd-member-state').textContent, /规则状态：已加载/);
   assert.ok(s.elements.some(e => e.textContent === '云端配置'));
@@ -220,7 +220,7 @@ test('successful clean sync updates the rule status and cloud badge immediately'
 test('sync is disabled when logged out or helper unavailable', () => {
   for (const ctx of [{ memberState: {} }, { memberState: { logged_in: true }, memberError: 'unavailable' }]) {
     const s = setup(); s.api.render({ ...ctx, netDevs: ['br-lan'] });
-    assert.equal(s.elements.find(e => e.textContent === '同步并启用').disabled, true);
+    assert.equal(s.elements.find(e => e.textContent === '应用云端配置').disabled, true);
   }
 });
 

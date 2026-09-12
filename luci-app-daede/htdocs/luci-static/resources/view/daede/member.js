@@ -154,6 +154,7 @@ function render(ctx) {
 				memberState: result.state, memberError: result.error, memberRefreshNote: notice
 			}));
 			card.replaceWith(next);
+			if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: result.state }));
 			if (typeof window.scrollTo === 'function') window.scrollTo({ left: x, top: y, behavior: 'instant' });
 		});
 	}
@@ -196,7 +197,7 @@ function render(ctx) {
 			feedback.textContent = '已选择推荐接口，登录后生效；现有运行配置尚未修改。';
 		}
 	});
-	const sync = action('同步并启用', function() {
+	const sync = action('应用云端配置', function() {
 		return invoke('sync').then(function(result) {
 			state.logged_in = true;
 			state.mode = 'cloud';
@@ -248,7 +249,7 @@ function render(ctx) {
 		stateLine,
 		renderUsage(ctx),
 		credentials,
-		E('div', { 'class': 'dd-member-actions' }, [sync, settings, local]),
+		E('div', { 'class': 'dd-member-actions' }, [sync, local, settings]),
 		feedback
 	]);
 	return card;
