@@ -58,7 +58,7 @@ dns {
     max_cache_size: 65536
 
     upstream {
-        alidns: 'udp://223.5.5.5:53'
+        alidns: 'udp://dns.alidns.com:53'
         googledns: 'tcp+udp://dns.google:53'
     }
 
