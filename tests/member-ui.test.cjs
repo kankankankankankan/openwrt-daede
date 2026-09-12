@@ -12,13 +12,14 @@ function setup(response = { ok: true, mode: 'local' }) {
     const el = { tag, attrs, children, value: attrs.value || '', disabled: false, options: [], listeners: {},
       textContent: typeof children === 'string' ? children : '',
       appendChild(child) { this.options.push(child); },
+      replaceWith(child) { this.replacement = child; },
       addEventListener(event, fn) { this.listeners[event] = fn; }
     };
     elements.push(el);
     return el;
   }
   const fs = {
-    exec: async (command, args) => { calls.push({ command, args }); return { code: 0, stdout: JSON.stringify(response) }; },
+    exec: async (command, args) => { calls.push({ command, args }); return { code: 0, stdout: JSON.stringify(typeof response === 'function' ? response(args) : response) }; },
     write: async (path, body, mode) => { calls.push({ path, body, mode }); },
     remove: async (path) => { calls.push({ remove: path }); }
   };
@@ -141,6 +142,56 @@ test('login stages credentials privately, passes only random identifier, removes
   assert.equal(request.args.length, 2);
   assert.ok(s.calls.some(c => c.remove === staged.path));
   assert.equal(inputs[2].value, '');
+});
+
+test('successful login refreshes only the member card with current profile and quota', async () => {
+  const s = setup(args => args[0] === 'status' ? { ok: true, logged_in: true, mode: 'cloud', quota: { memberName: 'new-member', used: 10, total: 100 } } : { ok: true, logged_in: true });
+  const card = s.api.render({ memberState: { mode: 'cloud' }, netDevs: ['br-lan'] });
+  const inputs = s.elements.filter(e => e.tag === 'input');
+  inputs[0].value = 'https://rules.example'; inputs[1].value = 'tester'; inputs[2].value = 'test-only';
+  s.elements.find(e => e.tag === 'select').value = 'br-lan';
+  s.elements.find(e => e.textContent === '登录会员').listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(card.replacement);
+  assert.match(textOf(card.replacement), /new-member/);
+  assert.match(textOf(card.replacement), /已用 10 B/);
+  assert.equal(s.calls.filter(c => c.command && c.args[0] === 'status').length, 1);
+  assert.ok(!s.calls.some(c => c.reload));
+  assert.equal(inputs[2].value, '');
+});
+
+test('successful login with failed status refresh does not show stale quota or retry login', async () => {
+  const s = setup(args => args[0] === 'status' ? { ok: false, error: 'temporary outage' } : { ok: true, logged_in: true });
+  const card = s.api.render({ memberState: { mode: 'local', quota: { memberName: 'OLD', used: 50, total: 100 } }, netDevs: ['br-lan'] });
+  const inputs = s.elements.filter(e => e.tag === 'input');
+  inputs[0].value = 'https://rules.example'; inputs[1].value = 'tester'; inputs[2].value = 'test-only';
+  s.elements.find(e => e.tag === 'select').value = 'br-lan';
+  s.elements.find(e => e.textContent === '登录会员').listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(card.replacement);
+  assert.match(textOf(card.replacement), /登录成功/);
+  assert.doesNotMatch(textOf(card.replacement), /OLD|已用 50 B/);
+  assert.ok(!s.calls.some(c => c.reload));
+  assert.equal(s.calls.filter(c => c.command && c.args[0] === 'login').length, 1);
+});
+
+test('logout refreshes only the member card and removes the previous profile', async () => {
+  const s = setup(args => args[0] === 'status' ? { ok: true, logged_in: false, mode: 'cloud' } : { ok: true });
+  const card = s.api.render({ memberState: { logged_in: true, mode: 'cloud', quota: { memberName: 'OLD', used: 10, total: 100 } }, netDevs: ['br-lan'] });
+  s.elements.find(e => e.textContent === '退出登录').listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(card.replacement);
+  assert.doesNotMatch(textOf(card.replacement), /OLD/);
+  assert.match(textOf(card.replacement), /未登录/);
+  assert.ok(!s.calls.some(c => c.reload));
+});
+
+test('logged-out member card hides previous sync time and rule warning', () => {
+  const s = setup();
+  const card = s.api.render({ memberState: { logged_in: false, last_sync: '2026-09-12T10:00:00Z', warning: 'previous-member-warning', mode: 'cloud' }, netDevs: ['br-lan'] });
+  const status = s.elements.find(e => e.attrs.class === 'dd-member-state');
+  assert.equal(status.textContent, '未登录');
+  assert.doesNotMatch(textOf(card), /最近同步|规则状态|previous-member-warning/);
 });
 
 test('failed login clears input and removes staging file without reload', async () => {

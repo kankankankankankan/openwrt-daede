@@ -96,6 +96,7 @@ function renderUsage(ctx) {
 
 function render(ctx) {
 	const state = ctx.memberState || {};
+	let card;
 	const modeBadge = E('span', { 'class': 'dd-member-mode' + (state.mode === 'cloud' ? ' dd-member-mode-cloud' : '') });
 	function updateMode() {
 		modeBadge.textContent = state.mode === 'cloud' ? '云端配置' : '本地配置';
@@ -119,7 +120,7 @@ function render(ctx) {
 			lan.appendChild(E('option', { 'value': name }, name));
 	});
 	lan.value = selectedLan;
-	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || state.warning || recommendation.message || '');
+	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || (state.logged_in ? state.warning : '') || ctx.memberRefreshNote || recommendation.message || '');
 	const buttons = [];
 	function action(label, handler, primary) {
 		const button = E('button', { 'type': 'button', 'class': 'cbi-button ' + (primary ? 'cbi-button-action' : 'cbi-button-neutral') }, label);
@@ -140,10 +141,27 @@ function render(ctx) {
 		return button;
 	}
 	function reload() { window.location.reload(); }
+	function refreshMember(fallback, notice) {
+		// 登录不改变配置来源，只替换会员卡，保留其他表单及页面位置。
+		return getStatus().then(function(nextState) {
+			return { state: nextState, error: null };
+		}, function() {
+			return { state: fallback, error: notice + '，但会员状态暂时无法更新，请稍后重试。' };
+		}).then(function(result) {
+			if (card.isConnected === false) return;
+			const x = window.scrollX, y = window.scrollY;
+			const next = render(Object.assign({}, ctx, {
+				memberState: result.state, memberError: result.error, memberRefreshNote: notice
+			}));
+			card.replaceWith(next);
+			if (typeof window.scrollTo === 'function') window.scrollTo({ left: x, top: y, behavior: 'instant' });
+		});
+	}
 	function field(label, input) {
 		return E('label', { 'class': 'dd-member-field' }, [E('span', {}, label), input]);
 	}
 	function stateText() {
+		if (!state.logged_in) return '未登录';
 		const syncTime = state.last_sync ? new Date(state.last_sync).getTime() : 0;
 		const elapsed = syncTime ? Math.max(0, Date.now() - syncTime) : 0;
 		let recent = '';
@@ -162,7 +180,13 @@ function render(ctx) {
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
 		if (!url.value.trim() || !username.value.trim() || !password.value || !lan.value)
 			throw new Error('请填写系统地址、账号、密码并选择 LAN 接口');
-		return login({ url: url.value.trim(), username: username.value.trim(), password: password.value, lan_interface: lan.value }).then(reload);
+		const origin = url.value.trim(), selected = lan.value;
+		return login({ url: origin, username: username.value.trim(), password: password.value, lan_interface: selected }).then(function() {
+			password.value = '';
+			return refreshMember(Object.assign({}, state, {
+				logged_in: true, url: origin, lan_interface: selected, quota: null, quota_status: 'unavailable'
+			}), '登录成功');
+		});
 	}, !state.logged_in);
 	const recommend = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '使用推荐接口');
 	recommend.disabled = !recommendation.recommended;
@@ -185,7 +209,11 @@ function render(ctx) {
 		});
 	}, true);
 	sync.disabled = !state.logged_in || !!ctx.memberError;
-	const logout = action('退出登录', function() { return invoke('logout').then(reload); });
+	const logout = action('退出登录', function() {
+		return invoke('logout').then(function() {
+			return refreshMember(Object.assign({}, state, { logged_in: false, quota: null, quota_status: 'unauthenticated' }), '已退出登录');
+		});
+	});
 	logout.disabled = !state.logged_in;
 	const local = action('切换到本地编辑', function() {
 		ui.showModal('切换配置来源', [
@@ -213,7 +241,7 @@ function render(ctx) {
 		credentials.style.display = opening ? 'grid' : 'none';
 		settings.textContent = opening ? '收起设置' : '账户设置';
 	});
-	return E('div', { 'class': 'dd-card dd-member-card' }, [
+	card = E('div', { 'class': 'dd-card dd-member-card' }, [
 		E('div', { 'class': 'dd-member-head' }, [
 			E('h4', { 'class': 'dd-card-title' }, '会员配置'), memberName, modeBadge
 		]),
@@ -223,6 +251,7 @@ function render(ctx) {
 		E('div', { 'class': 'dd-member-actions' }, [sync, settings, local]),
 		feedback
 	]);
+	return card;
 }
 
 return baseclass.extend({ getStatus: getStatus, assertLocal: assertLocal, render: render, renderUsage: renderUsage });
