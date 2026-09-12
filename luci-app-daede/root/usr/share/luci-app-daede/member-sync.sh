@@ -199,6 +199,14 @@ case "$1" in
    [ "$recovered" = 1 ] && error 'New configuration failed to start; previous configuration restored'
    error 'New configuration failed and previous service could not restart; check the dae service log'
   fi
+  # Keep successful member sync beginner-friendly: configure the same
+  # accelerated GitHub geo data source exposed by the Data Updates page.
+  uci set daede.config.geoip_url='https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
+  uci set daede.config.geosite_url='https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
+  uci set daede.config.geo_auto='1'
+  uci set daede.config.geo_auto_freq='daily'
+  uci commit daede || error 'Configuration is running but data update settings could not be saved'
+  "$ROOT/usr/share/luci-app-daede/geo-cron.sh" enable || error 'Configuration is running but data update schedule could not be enabled'
   [ "$HAD" != 1 ] || cp "$WORK/previous" "$ROOT/etc/dae/config.dae.member-backup"
   NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   uci set daede.member=member && uci set daede.member.mode=cloud && uci set "daede.member.last_sync=$NOW" && uci set "daede.member.warning=$WARNING" && uci commit daede || error 'Configuration is running but member status could not be saved'
