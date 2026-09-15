@@ -262,7 +262,8 @@ function render(ctx) {
 		field('系统地址', url),
 		E('div', { 'class': 'dd-member-grid' }, [field('账号', username), field('密码', password), field('LAN 接口', lan)]),
 		E('div', { 'class': 'dd-member-actions' }, [signIn, logout, recommend]),
-		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。')
+		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。'),
+		syncScheduleBox
 	]);
 	const settings = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '账户设置');
 	settings.hidden = !state.logged_in;
@@ -275,9 +276,8 @@ function render(ctx) {
 		E('div', { 'class': 'dd-member-head' }, [
 			E('h4', { 'class': 'dd-card-title' }, '会员配置'), memberName, modeBadge
 		]),
-		stateLine,
-		syncScheduleBox,
 		renderUsage(ctx),
+		stateLine,
 		credentials,
 		E('div', { 'class': 'dd-member-actions' }, [sync, local, settings]),
 		E('p', { 'class': 'dd-member-note' }, state.logged_in && state.mode === 'cloud' ? '当前由云端统一管理规则；如需手动修改，请先切换到本地编辑。' : '登录会员后可使用云端规则；本地模式下可手动调整配置。'),
