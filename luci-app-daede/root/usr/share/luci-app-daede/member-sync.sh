@@ -182,6 +182,8 @@ case "$1" in
   COUNT="$(awk '{n+=gsub(/__DAE_LAN_INTERFACE__/, "&")} END {print n+0}' "$WORK/response")"
   [ "$COUNT" = 1 ] || error 'Configuration must contain exactly one LAN interface placeholder'
   sed "s/__DAE_LAN_INTERFACE__/$LAN/" "$WORK/response" > "$WORK/config.dae"
+  # dae 1.0.0 不支持新版 DNS 缓存字段，下载后清理以保证配置可启动。
+  sed -i -e '/^[[:space:]]*optimistic_cache[[:space:]]*:/d' -e '/^[[:space:]]*optimistic_cache_ttl[[:space:]]*:/d' -e '/^[[:space:]]*max_cache_size[[:space:]]*:/d' "$WORK/config.dae"
   "$ROOT/usr/bin/dae" validate -c "$WORK/config.dae" >/dev/null 2>&1 || error 'dae configuration validation failed; current configuration was kept'
   CONF="$ROOT/etc/dae/config.dae"; mkdir -p "$ROOT/etc/dae" || error 'Cannot create configuration directory'
   uci export daede > "$WORK/daede.uci" || error 'Cannot back up member settings'

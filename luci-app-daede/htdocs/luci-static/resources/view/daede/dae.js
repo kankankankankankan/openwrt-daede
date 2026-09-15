@@ -53,9 +53,6 @@ dns {
     # 双栈网络保持注释；只使用 IPv4 时可取消下一行注释。
     # ipversion_prefer: 4
 
-    optimistic_cache: true
-    optimistic_cache_ttl: 60
-    max_cache_size: 65536
 
     upstream {
         alidns: 'udp://dns.alidns.com:53'
@@ -571,29 +568,12 @@ function renderDaeForms(ctx) {
 		const netDevs = (ctx && ctx.netDevs) || [];
 		s = m.section(form.NamedSection, 'config', 'dae', _('Network interfaces'));
 		s.addremove = false;
-		o = s.option(form.DummyValue, '_network_topology_help', _('Network topology guidance'));
-		o.rawhtml = true;
-		o.cfgvalue = function() {
-			return '<strong>请按实际网络拓扑选择：</strong>LAN 应连接防火墙 LAN 区域使用的设备；WAN 可保持 auto 或选择实际外网设备。推荐仅基于当前 LuCI 网络与防火墙状态，复杂拓扑请手动确认。';
-		};
 		o = s.option(form.Value, 'lan_interface', _('LAN interface'),
-			_('单网卡旁路由选择内网桥。多网卡正常路由选择连接 LAN 的接口。'));
+			_('请选择连接 LAN 的网络接口。单网卡旁路由通常选择 br-lan 或 eth0，多网卡请选择实际 LAN 接口。'));
 		const lanOption = o;
-		const lanRecommendation = (ctx && ctx.lanRecommendation) || { value: '', status: 'manual', message: '没有唯一可验证的 LAN 接口，请手动选择。' };
-		lanOption.description = (lanRecommendation.message || '').replace(/[&<>"']/g, function(c) {
-			return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-		});
-		o.default = lanRecommendation.value || '';
-		o.placeholder = 'br-lan';
+		o.default = '';
+		o.placeholder = '请选择网络接口';
 		netDevs.forEach(function(d) { o.value(d); });
-		if (lanRecommendation.recommended) {
-			o = s.option(form.Button, '_use_lan_recommendation', _('LAN 接口推荐'));
-			o.inputtitle = _('使用推荐接口');
-			o.onclick = function() {
-				var widget = lanOption.getUIElement('config');
-				if (widget && widget.setValue) widget.setValue(lanRecommendation.recommended);
-			};
-		}
 		o = s.option(form.Value, 'wan_interface', _('WAN interface'),
 			_('单网卡旁路由保持 auto。多网卡正常路由选择外网接口或 VLAN，例如 eth0.2。'));
 		o.default = 'auto';

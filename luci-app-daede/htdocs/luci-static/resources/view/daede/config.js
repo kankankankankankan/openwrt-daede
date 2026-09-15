@@ -11,7 +11,6 @@
 'require view.daede.dae as daeView';
 'require view.daede.daed as daedView';
 'require view.daede.member as member';
-'require view.daede.lan-interface as lanInterface';
 
 return view.extend({
 	_loadContext: function() {
@@ -28,18 +27,8 @@ return view.extend({
 					ctx.netDevs = (devs || []).map(function(d) { return d.getName(); })
 						.filter(function(n) { return n && n !== 'dae0'; }).sort();
 					const savedLan = uci.get('dae', 'config', 'lan_interface') || '';
-					const recommend = function(saved) {
-						return lanInterface.recommendLanInterface({
-							saved: saved,
-							devices: ctx.netDevs,
-							networks: nets,
-							zones: data[2] ? [data[2]] : []
-						});
-					};
-					ctx.lanRecommendation = recommend(savedLan);
 					return member.getStatus().then(function(state) {
 						ctx.memberState = state;
-						ctx.memberLanRecommendation = recommend(state.lan_interface || savedLan);
 					}).catch(function(error) {
 						ctx.memberError = error.message || '会员配置服务不可用';
 					}).then(function() { return ctx; });

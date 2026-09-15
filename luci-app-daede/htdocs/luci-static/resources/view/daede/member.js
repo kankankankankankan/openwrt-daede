@@ -126,14 +126,8 @@ function render(ctx) {
 	const lan = E('select', { 'class': 'cbi-input-select' });
 	lan.appendChild(E('option', { 'value': '' }, '请选择 LAN 接口'));
 	(ctx.netDevs || []).forEach(function(name) { lan.appendChild(E('option', { 'value': name }, name)); });
-	const recommendation = ctx.memberLanRecommendation || ctx.lanRecommendation || { value: '', status: 'manual', message: '没有唯一可验证的 LAN 接口，请手动选择。' };
-	const selectedLan = state.lan_interface || recommendation.value || '';
-	[selectedLan, recommendation.recommended].forEach(function(name) {
-		if (name && !Array.prototype.some.call(lan.options, function(o) { return o.value === name; }))
-			lan.appendChild(E('option', { 'value': name }, name));
-	});
-	lan.value = selectedLan;
-	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || (state.logged_in ? state.warning : '') || ctx.memberRefreshNote || recommendation.message || '');
+	lan.value = state.lan_interface || '';
+	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || (state.logged_in ? state.warning : '') || ctx.memberRefreshNote || '');
 	const buttons = [];
 	function action(label, handler, primary) {
 		const button = E('button', { 'type': 'button', 'class': 'cbi-button ' + (primary ? 'cbi-button-action' : 'cbi-button-neutral'), 'aria-label': label }, label);
@@ -217,14 +211,6 @@ function render(ctx) {
 			}), '登录成功');
 		});
 	}, !state.logged_in);
-	const recommend = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '使用推荐接口');
-	recommend.disabled = !recommendation.recommended;
-	recommend.addEventListener('click', function() {
-		if (recommendation.recommended) {
-			lan.value = recommendation.recommended;
-			feedback.textContent = '已选择推荐接口，登录后生效；现有运行配置尚未修改。';
-		}
-	});
 	const sync = action('应用云端配置', function() {
 		return invoke('sync').then(function(result) {
 			state.logged_in = true;
@@ -260,10 +246,9 @@ function render(ctx) {
 	local.hidden = state.mode !== 'cloud';
 	const credentials = E('div', { 'class': 'dd-member-fields', 'style': state.logged_in ? 'display:none' : '' }, [
 		field('系统地址', url),
-		E('div', { 'class': 'dd-member-grid' }, [field('账号', username), field('密码', password), field('LAN 接口', lan)]),
-		E('div', { 'class': 'dd-member-actions' }, [signIn, logout, recommend]),
-		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。'),
-		syncScheduleBox
+		E('div', { 'class': 'dd-member-grid' }, [field('账号', username), field('密码', password), field('LAN 接口', lan), syncScheduleBox]),
+		E('div', { 'class': 'dd-member-actions' }, [signIn, logout]),
+		E('p', { 'class': 'dd-member-note' }, '密码仅用于本次登录，不会保存。')
 	]);
 	const settings = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '账户设置');
 	settings.hidden = !state.logged_in;
