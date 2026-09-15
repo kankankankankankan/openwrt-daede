@@ -4,3 +4,5 @@ config daede 'config'
 # 2026-09-11: Public preferences only; member credentials remain outside UCI.
 config member 'member'
 	option mode 'local'
+	option auto_sync '0'
+	option sync_interval '6'

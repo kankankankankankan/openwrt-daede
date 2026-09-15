@@ -121,7 +121,7 @@ case "$1" in
   json_add_string quota_status "$QUOTA_STATUS"
   [ "$logged" != 1 ] || add_quota
   json_add_string url "$URL"; json_add_string lan_interface "$(get daede.member.lan_interface)"
-  json_add_string mode "$(get daede.member.mode)"; json_add_string last_sync "$(get daede.member.last_sync)"
+  json_add_string mode "$(get daede.member.mode)"; json_add_string last_sync "$(get daede.member.last_sync)"; json_add_boolean auto_sync "$(get daede.member.auto_sync)"; json_add_string sync_interval "$(get daede.member.sync_interval)"
   json_add_string warning "$note"; running=0; service running && running=1; json_add_boolean running "$running"; json_dump;;
  login)
   [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] && [ "$(wc -c < "$REQUEST")" -le 16384 ] || error 'Invalid login request'
@@ -150,6 +150,12 @@ case "$1" in
  local)
   uci set daede.member=member && uci set daede.member.mode=local && uci commit daede || error 'Cannot change configuration mode'
   success;;
+ schedule)
+  case "$2" in ''|*[!0-9]*) error 'Invalid sync interval';; esac
+  [ "$2" -ge 1 ] 2>/dev/null && [ "$2" -le 24 ] 2>/dev/null || error 'Sync interval must be between 1 and 24 hours'
+  uci set daede.member=member && uci set daede.member.auto_sync=1 && uci set daede.member.sync_interval="$2" && uci commit daede || error 'Cannot save sync schedule'
+  "$ROOT/usr/share/luci-app-daede/member-sync-cron.sh" enable || error 'Cannot apply sync schedule'
+  json_init; json_add_boolean ok 1; json_add_string sync_interval "$2"; json_dump;;
  sync)
   [ "$(get daede.config.active_backend)" = dae ] || error 'Select the dae backend before synchronizing'
   if [ -x "$ROOT/etc/init.d/daed" ] && "$ROOT/etc/init.d/daed" running >/dev/null 2>&1; then error 'Stop daed before synchronizing'; fi
@@ -207,6 +213,7 @@ case "$1" in
   uci set daede.config.geo_auto_freq='daily'
   uci commit daede || error 'Configuration is running but data update settings could not be saved'
   "$ROOT/usr/share/luci-app-daede/geo-cron.sh" enable || error 'Configuration is running but data update schedule could not be enabled'
+  uci -q get daede.member.auto_sync 2>/dev/null | grep -qx 1 && "$ROOT/usr/share/luci-app-daede/member-sync-cron.sh" enable || true
   [ "$HAD" != 1 ] || cp "$WORK/previous" "$ROOT/etc/dae/config.dae.member-backup"
   NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   uci set daede.member=member && uci set daede.member.mode=cloud && uci set "daede.member.last_sync=$NOW" && uci set "daede.member.warning=$WARNING" && uci commit daede || error 'Configuration is running but member status could not be saved'

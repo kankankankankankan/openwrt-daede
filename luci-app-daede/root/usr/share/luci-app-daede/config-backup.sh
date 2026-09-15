@@ -102,11 +102,13 @@ restore_snapshot() {
 	done < "$WORK/paths"
 }
 sync_cron() {
-	geo=disable; sub=disable
+	geo=disable; sub=disable; member=disable
 	[ "$(config -q get daede.config.geo_auto || :)" != 1 ] || geo=enable
 	[ "$(config -q get daed.config.subscribe_auto_update || :)" != 1 ] || sub=enable
+	[ "$(config -q get daede.member.auto_sync || :)" != 1 ] || member=enable
 	"$SHARE/geo-cron.sh" "$geo" >/dev/null 2>&1
 	"$SHARE/daed-sub-cron.sh" "$sub" >/dev/null 2>&1
+	"$SHARE/member-sync-cron.sh" "$member" >/dev/null 2>&1
 }
 finish() {
 	rc=$?

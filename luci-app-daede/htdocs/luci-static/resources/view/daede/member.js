@@ -191,6 +191,20 @@ function render(ctx) {
 			'规则状态：' + rules;
 	}
 	const stateLine = E('p', { 'class': 'dd-member-state' }, stateText());
+	const syncHours = E('input', {
+		type: 'number', min: '1', max: '24', step: '1',
+		'class': 'cbi-input-text', 'aria-label': '同步间隔（小时）',
+		value: state.sync_interval || '6'
+	});
+	const syncSchedule = E('button', { type: 'button', class: 'cbi-button cbi-button-neutral' }, '保存同步周期');
+	syncSchedule.disabled = !state.logged_in;
+	syncSchedule.addEventListener('click', function() {
+		syncSchedule.disabled = true;
+		invoke('schedule', [syncHours.value]).then(function() {
+			feedback.textContent = '自动同步已设置为每 ' + syncHours.value + ' 小时。';
+		}).catch(function(error) { feedback.textContent = error.message; }).finally(function() { syncSchedule.disabled = !state.logged_in; });
+	});
+	const syncScheduleBox = E('div', { class: 'dd-member-actions' }, [E('span', { class: 'dd-member-note' }, '自动同步间隔（小时）'), syncHours, syncSchedule]);
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
 		if (!url.value.trim() || !username.value.trim() || !password.value || !lan.value)
 			throw new Error('请填写系统地址、账号、密码并选择 LAN 接口');
@@ -262,6 +276,7 @@ function render(ctx) {
 			E('h4', { 'class': 'dd-card-title' }, '会员配置'), memberName, modeBadge
 		]),
 		stateLine,
+		syncScheduleBox,
 		renderUsage(ctx),
 		credentials,
 		E('div', { 'class': 'dd-member-actions' }, [sync, local, settings]),

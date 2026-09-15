@@ -76,6 +76,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/update-pkg.sh $(1)/usr/share/luci-app-daede/update-pkg.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/gen-dae-config.sh $(1)/usr/share/luci-app-daede/gen-dae-config.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/member-sync.sh $(1)/usr/share/luci-app-daede/member-sync.sh
+	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/member-sync-cron.sh $(1)/usr/share/luci-app-daede/member-sync-cron.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/proxy-check.sh $(1)/usr/share/luci-app-daede/proxy-check.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/fetch-clash-yaml.sh $(1)/usr/share/luci-app-daede/fetch-clash-yaml.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/config-backup.sh $(1)/usr/share/luci-app-daede/config-backup.sh
