@@ -51,6 +51,8 @@ function formatBytes(value) {
 
 function renderUsage(ctx) {
 	const state = ctx.memberState || {};
+	// 未登录时状态行已经显示登录状态，避免重复占用会员卡空间。
+	if (!state.logged_in && !ctx.memberError && state.quota_status !== 'unavailable') return null;
 	const quota = state.quota || {};
 	const upload = usageBytes(quota.upload), download = usageBytes(quota.download);
 	let used = usageBytes(quota.used);
@@ -257,17 +259,21 @@ function render(ctx) {
 		credentials.style.display = opening ? 'grid' : 'none';
 		settings.textContent = opening ? '收起设置' : '账户设置';
 	});
-	card = E('div', { 'class': 'dd-card dd-member-card' }, [
+	const usage = renderUsage(ctx);
+	const cardChildren = [
 		E('div', { 'class': 'dd-member-head' }, [
 			E('h4', { 'class': 'dd-card-title' }, '会员配置'), memberName, modeBadge
-		]),
-		renderUsage(ctx),
+		])
+	];
+	if (usage) cardChildren.push(usage);
+	cardChildren.push(
 		stateLine,
 		credentials,
 		E('div', { 'class': 'dd-member-actions' }, [sync, local, settings]),
 		E('p', { 'class': 'dd-member-note' }, state.logged_in && state.mode === 'cloud' ? '当前由云端统一管理规则；如需手动修改，请先切换到本地编辑。' : '登录会员后可使用云端规则；本地模式下可手动调整配置。'),
 		feedback
-	]);
+	);
+	card = E('div', { 'class': 'dd-card dd-member-card' }, cardChildren);
 	return card;
 }
 

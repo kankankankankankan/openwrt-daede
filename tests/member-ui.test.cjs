@@ -31,6 +31,7 @@ function setup(response = { ok: true, mode: 'local' }) {
 }
 
 function textOf(node) {
+  if (node == null) return '';
   return typeof node === 'string' ? node : node.textContent + (Array.isArray(node.children) ? node.children.map(textOf).join(' ') : '');
 }
 
@@ -57,8 +58,10 @@ test('quota card uses real large byte counters and ignores server percent and la
 
 test('quota states hide stale counters when logged out or status fails, without retries', () => {
   const stale = { used: 5, total: 10, planName: 'STALE' };
+  const loggedOut = setup();
+  assert.equal(loggedOut.api.renderUsage({ memberState: { logged_in: false, quota: stale } }), null);
+  assert.equal(loggedOut.calls.length, 0);
   for (const [ctx, message] of [
-    [{ memberState: { logged_in: false, quota: stale } }, /登录会员后查看/],
     [{ memberState: { logged_in: false, quota_status: 'unavailable', quota: stale } }, /暂时无法获取/],
     [{ memberState: { logged_in: true, quota: stale }, memberError: 'busy' }, /暂时无法获取/],
     [{ memberState: { logged_in: true } }, /暂未提供用量/]
@@ -235,30 +238,10 @@ test('sync is disabled when logged out or helper unavailable', () => {
   }
 });
 
-test('member recommendation replaces a different saved selection only on click without clearing password or persisting', async () => {
+test('member interface selector only exposes detected interfaces without recommendation UI', () => {
   const s = setup();
-  s.api.render({ memberState: { lan_interface: 'old-lan' }, netDevs: ['br-lan', 'lan1'], lanRecommendation: { value: 'old-lan', recommended: 'br-lan', status: 'saved', message: '推荐 br-lan' } });
-  const button = s.elements.find(e => e.textContent === '使用推荐接口');
+  s.api.render({ memberState: {}, netDevs: ['br-lan', 'eth0'], lanRecommendation: { recommended: 'br-lan' } });
   const select = s.elements.find(e => e.tag === 'select');
-  const password = s.elements.find(e => e.attrs.type === 'password');
-  password.value = 'test-only';
-  assert.equal(select.value, 'old-lan');
-  assert.ok(select.options.some(o => o.value === 'old-lan'));
-  assert.equal(button.disabled, false);
-  button.listeners.click();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(select.value, 'br-lan');
-  assert.equal(password.value, 'test-only');
-  assert.equal(s.calls.length, 0);
-});
-
-test('member keeps blank selection when no evidence and preserves a saved fallback absent from device list', () => {
-  for (const saved of ['', 'stale-lan']) {
-    const s = setup();
-    s.api.render({ memberState: {}, netDevs: ['eth0'], lanRecommendation: { value: saved, recommended: '', status: 'manual', message: '请手动选择' } });
-    const select = s.elements.find(e => e.tag === 'select');
-    assert.equal(select.value, saved);
-    assert.ok(select.options.some(o => o.value === saved));
-    assert.equal(s.calls.length, 0);
-  }
+  assert.deepEqual(select.options.map(o => o.attrs.value), ['', 'br-lan', 'eth0']);
+  assert.equal(s.elements.some(e => e.textContent === '使用推荐接口'), false);
 });
