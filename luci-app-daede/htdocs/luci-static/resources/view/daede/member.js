@@ -194,19 +194,27 @@ function render(ctx) {
 		value: state.sync_interval || '6'
 	});
 	const syncSchedule = E('button', { type: 'button', class: 'cbi-button cbi-button-neutral', style: 'flex:0 0 auto;margin:0;white-space:nowrap' }, '保存同步周期');
+	const syncFeedback = E('span', { class: 'dd-member-sync-feedback', role: 'status', 'aria-live': 'polite' });
 	syncSchedule.disabled = !state.logged_in;
 	syncSchedule.addEventListener('click', function() {
+		const hours = String(syncHours.value || '').trim();
+		syncFeedback.className = 'dd-member-sync-feedback';
+		syncFeedback.textContent = '';
 		syncSchedule.disabled = true;
-		invoke('schedule', [syncHours.value]).then(function() {
-			feedback.textContent = '自动同步已设置为每 ' + syncHours.value + ' 小时。';
-		}).catch(function(error) { feedback.textContent = error.message; }).finally(function() { syncSchedule.disabled = !state.logged_in; });
+		invoke('schedule', [hours]).then(function() {
+			syncFeedback.className = 'dd-member-sync-feedback dd-ok';
+			syncFeedback.textContent = '已保存 · 每 ' + hours + ' 小时同步';
+		}).catch(function(error) {
+			syncFeedback.className = 'dd-member-sync-feedback dd-error';
+			syncFeedback.textContent = error.message || '保存失败';
+		}).finally(function() { syncSchedule.disabled = !state.logged_in; });
 	});
 	const syncScheduleBox = E('div', { class: 'dd-member-field dd-member-sync-field' }, [
 		E('span', {}, '自动同步间隔（小时）'),
 		E('div', {
 			class: 'dd-member-sync-control',
 			style: 'display:flex;flex-flow:row nowrap;align-items:center;gap:7px;min-width:0'
-		}, [syncHours, syncSchedule])
+		}, [syncHours, syncSchedule, syncFeedback])
 	]);
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
 		if (!url.value.trim() || !username.value.trim() || !password.value || !lan.value)
