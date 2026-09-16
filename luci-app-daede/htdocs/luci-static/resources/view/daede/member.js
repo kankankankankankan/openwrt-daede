@@ -190,9 +190,10 @@ function render(ctx) {
 	const syncHours = E('input', {
 		type: 'number', min: '1', max: '24', step: '1',
 		'class': 'cbi-input-text', 'aria-label': '同步间隔（小时）',
+		style: 'display:block;box-sizing:border-box;width:auto;flex:1 1 0;min-width:0',
 		value: state.sync_interval || '6'
 	});
-	const syncSchedule = E('button', { type: 'button', class: 'cbi-button cbi-button-neutral' }, '保存同步周期');
+	const syncSchedule = E('button', { type: 'button', class: 'cbi-button cbi-button-neutral', style: 'flex:0 0 auto;margin:0;white-space:nowrap' }, '保存同步周期');
 	syncSchedule.disabled = !state.logged_in;
 	syncSchedule.addEventListener('click', function() {
 		syncSchedule.disabled = true;
@@ -200,7 +201,13 @@ function render(ctx) {
 			feedback.textContent = '自动同步已设置为每 ' + syncHours.value + ' 小时。';
 		}).catch(function(error) { feedback.textContent = error.message; }).finally(function() { syncSchedule.disabled = !state.logged_in; });
 	});
-	const syncScheduleBox = E('div', { class: 'dd-member-actions' }, [E('span', { class: 'dd-member-note' }, '自动同步间隔（小时）'), syncHours, syncSchedule]);
+	const syncScheduleBox = E('div', { class: 'dd-member-field dd-member-sync-field' }, [
+		E('span', {}, '自动同步间隔（小时）'),
+		E('div', {
+			class: 'dd-member-sync-control',
+			style: 'display:flex;flex-flow:row nowrap;align-items:center;gap:7px;min-width:0'
+		}, [syncHours, syncSchedule])
+	]);
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
 		if (!url.value.trim() || !username.value.trim() || !password.value || !lan.value)
 			throw new Error('请填写系统地址、账号、密码并选择 LAN 接口');
