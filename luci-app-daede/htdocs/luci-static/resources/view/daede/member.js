@@ -190,31 +190,30 @@ function render(ctx) {
 	const syncHours = E('input', {
 		type: 'number', min: '1', max: '24', step: '1',
 		'class': 'cbi-input-text', 'aria-label': '同步间隔（小时）',
-		style: 'display:block;box-sizing:border-box;width:auto;flex:1 1 0;min-width:0',
+		style: 'display:block;box-sizing:border-box;width:100%;flex:1 1 auto;min-width:0',
 		value: state.sync_interval || '6'
 	});
 	const syncSchedule = E('button', { type: 'button', class: 'cbi-button cbi-button-neutral', style: 'flex:0 0 auto;margin:0;white-space:nowrap' }, '保存同步周期');
-	const syncFeedback = E('span', { class: 'dd-member-sync-feedback', role: 'status', 'aria-live': 'polite' });
 	syncSchedule.disabled = !state.logged_in;
 	syncSchedule.addEventListener('click', function() {
 		const hours = String(syncHours.value || '').trim();
-		syncFeedback.className = 'dd-member-sync-feedback';
-		syncFeedback.textContent = '';
 		syncSchedule.disabled = true;
+		syncSchedule.textContent = '保存中…';
 		invoke('schedule', [hours]).then(function() {
-			syncFeedback.className = 'dd-member-sync-feedback dd-ok';
-			syncFeedback.textContent = '已保存 · 每 ' + hours + ' 小时同步';
+			ui.addNotification(null, E('p', {}, '同步周期已保存，每 ' + hours + ' 小时同步'), 'info');
 		}).catch(function(error) {
-			syncFeedback.className = 'dd-member-sync-feedback dd-error';
-			syncFeedback.textContent = error.message || '保存失败';
-		}).finally(function() { syncSchedule.disabled = !state.logged_in; });
+			ui.addNotification(null, E('p', {}, error.message || '保存同步周期失败'), 'error');
+		}).finally(function() {
+			syncSchedule.textContent = '保存同步周期';
+			syncSchedule.disabled = !state.logged_in;
+		});
 	});
 	const syncScheduleBox = E('div', { class: 'dd-member-field dd-member-sync-field' }, [
 		E('span', {}, '自动同步间隔（小时）'),
 		E('div', {
 			class: 'dd-member-sync-control',
 			style: 'display:flex;flex-flow:row nowrap;align-items:center;gap:7px;min-width:0'
-		}, [syncHours, syncSchedule, syncFeedback])
+		}, [syncHours, syncSchedule])
 	]);
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
 		if (!url.value.trim() || !username.value.trim() || !password.value || !lan.value)

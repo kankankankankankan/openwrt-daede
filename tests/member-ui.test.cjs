@@ -7,6 +7,7 @@ const source = readFileSync(require('node:path').join(__dirname, '../luci-app-da
 
 function setup(response = { ok: true, mode: 'local' }) {
   const calls = [];
+  const notifications = [];
   const elements = [];
   function E(tag, attrs = {}, children = []) {
     const el = { tag, attrs, children, value: attrs.value || '', disabled: false, options: [], listeners: {},
@@ -26,8 +27,9 @@ function setup(response = { ok: true, mode: 'local' }) {
   const document = { listeners: {}, addEventListener(event, fn) { this.listeners[event] = fn; }, dispatchEvent(event) { if (this.listeners[event.type]) this.listeners[event.type](event); } };
   const window = { crypto: webcrypto, location: { reload() { calls.push({ reload: true }); } } };
   const CustomEvent = function(type, init) { this.type = type; this.detail = init && init.detail; };
-  const api = new Function('baseclass', 'fs', 'ui', 'window', 'document', 'CustomEvent', 'E', source)({ extend: o => o }, fs, {}, window, document, CustomEvent, E);
-  return { api, calls, elements, fs, document };
+  const ui = { addNotification(parent, content, level) { notifications.push({ parent, content, level }); } };
+  const api = new Function('baseclass', 'fs', 'ui', 'window', 'document', 'CustomEvent', 'E', source)({ extend: o => o }, fs, ui, window, document, CustomEvent, E);
+  return { api, calls, elements, notifications, fs, document };
 }
 
 function textOf(node) {
@@ -244,4 +246,34 @@ test('member interface selector only exposes detected interfaces without recomme
   const select = s.elements.find(e => e.tag === 'select');
   assert.deepEqual(select.options.map(o => o.attrs.value), ['', 'br-lan', 'eth0']);
   assert.equal(s.elements.some(e => e.textContent === '使用推荐接口'), false);
+});
+
+
+test('saving sync period uses a page notification and keeps the input full width', async () => {
+  const s = setup({ ok: true });
+  s.api.render({ memberState: { logged_in: true, sync_interval: '6' }, netDevs: ['br-lan'] });
+  const hours = s.elements.find(e => e.attrs['aria-label'] === '同步间隔（小时）');
+  const button = s.elements.find(e => e.textContent === '保存同步周期');
+  hours.value = '12';
+  button.listeners.click();
+  assert.equal(button.textContent, '保存中…');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(s.calls.find(c => c.command === '/usr/share/luci-app-daede/member-sync.sh').args, ['schedule', '12']);
+  assert.equal(s.notifications.length, 1);
+  assert.equal(s.notifications[0].level, 'info');
+  assert.equal(s.notifications[0].content.textContent, '同步周期已保存，每 12 小时同步');
+  assert.equal(s.elements.some(e => e.attrs.class === 'dd-member-sync-feedback'), false);
+  assert.match(hours.attrs.style, /width:100%/);
+  assert.match(hours.attrs.style, /flex:1 1 auto/);
+  assert.equal(button.textContent, '保存同步周期');
+});
+
+test('failed sync period save uses an error page notification', async () => {
+  const s = setup({ ok: false, error: '保存同步周期失败' });
+  s.api.render({ memberState: { logged_in: true }, netDevs: ['br-lan'] });
+  s.elements.find(e => e.textContent === '保存同步周期').listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(s.notifications.length, 1);
+  assert.equal(s.notifications[0].level, 'error');
+  assert.equal(s.notifications[0].content.textContent, '保存同步周期失败');
 });
