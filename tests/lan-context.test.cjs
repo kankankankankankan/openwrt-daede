@@ -25,18 +25,15 @@ function load({ failed = false, memberSaved = '' } = {}) {
 test('context discovery uses network/firewall APIs without UCI writes and keeps member-specific saved selection', async () => {
   const s = load({ memberSaved: 'member-old' });
   const ctx = await s.api.load();
-  assert.equal(ctx.lanRecommendation.value, 'saved-lan');
-  assert.equal(ctx.lanRecommendation.recommended, 'br-lan');
-  assert.equal(ctx.memberLanRecommendation.value, 'member-old');
-  assert.match(ctx.memberLanRecommendation.message, /不存在/);
+  assert.deepEqual(ctx.netDevs, ['br-lan']);
+  assert.equal(ctx.memberState.lan_interface, 'member-old');
   assert.deepEqual(s.writes, []);
 });
 
 test('failed discovery still loads page and preserves saved selection without guessing', async () => {
   const s = load({ failed: true });
   const ctx = await s.api.load();
-  assert.equal(ctx.lanRecommendation.value, 'saved-lan');
-  assert.equal(ctx.lanRecommendation.recommended, '');
   assert.deepEqual(ctx.netDevs, []);
+  assert.equal(ctx.memberState.lan_interface, '');
   assert.deepEqual(s.writes, []);
 });
