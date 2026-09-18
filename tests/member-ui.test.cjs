@@ -265,6 +265,9 @@ test('saving sync period uses a page notification and keeps the input full width
   assert.equal(s.elements.some(e => e.attrs.class === 'dd-member-sync-feedback'), false);
   assert.match(hours.attrs.style, /width:100%/);
   assert.match(hours.attrs.style, /flex:1 1 auto/);
+  const control = s.elements.find(e => e.attrs.class === 'dd-member-sync-control');
+  assert.match(control.attrs.style, /display:grid/);
+  assert.match(control.attrs.style, /grid-template-columns:minmax\(0,1fr\) auto/);
   assert.equal(button.textContent, '保存同步周期');
 });
 

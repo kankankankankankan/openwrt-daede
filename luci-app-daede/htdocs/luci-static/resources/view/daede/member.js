@@ -212,7 +212,7 @@ function render(ctx) {
 		E('span', {}, '自动同步间隔（小时）'),
 		E('div', {
 			class: 'dd-member-sync-control',
-			style: 'display:flex;flex-flow:row nowrap;align-items:center;gap:7px;min-width:0'
+			style: 'display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0'
 		}, [syncHours, syncSchedule])
 	]);
 	const signIn = action(state.logged_in ? '重新登录' : '登录会员', function() {
