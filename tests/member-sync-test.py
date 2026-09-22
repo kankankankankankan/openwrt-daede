@@ -78,7 +78,7 @@ case "$1" in
  enabled) [ -f "$r/enabled" ];;
  enable) touch "$r/enabled";;
  disable) rm -f "$r/enabled";;
- stop) rm -f "$r/running";;
+ stop) rm -f "$r/running" "$r/var/log/dae/dae.log";;
  restart) if [ -f "$r/restart-fail" ]; then rm "$r/restart-fail"; exit 1; fi; touch "$r/running";;
 esac
 ''', executable=True)
@@ -184,6 +184,8 @@ printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
         store = json.loads((self.root/'store.json').read_text())
         self.assertEqual(store['daede.config.geo_auto'], '1')
         self.assertEqual(store['daede.config.geo_auto_freq'], 'daily')
+        self.assertEqual(store['daede.config.geoip_url'], 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat')
+        self.assertNotIn('ghfast', store['daede.config.geosite_url'])
 
     def test_geo_schedule_failure_is_reported_after_config_starts(self):
         self.assertTrue(self.login()['ok'])
@@ -215,7 +217,15 @@ printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
         self.assertEqual((self.root/'etc/dae/config.dae').read_text(),'old')
     def test_restart_rollback(self):
         self.login(); self.write('etc/dae/config.dae','old'); self.write('running','1'); self.write('restart-fail','1')
-        self.assertFalse(self.run_action('sync')['ok'])
+        (self.root/'var/log/dae').mkdir(parents=True)
+        self.write('var/log/dae/dae.log', 'fatal: missing routing dataset')
+        result = self.run_action('sync')
+        self.assertFalse(result['ok'])
+        self.assertIn('/tmp/daede-member/last-start.log', result['error'])
+        evidence = self.root/'tmp/daede-member/last-start.log'
+        self.assertIn('fatal: missing routing dataset', evidence.read_text())
+        self.assertEqual(evidence.stat().st_mode & 0o777, 0o600)
+        self.assertFalse((self.root/'var/log/dae/dae.log').exists())
         self.assertEqual((self.root/'etc/dae/config.dae').read_text(),'old')
         self.assertEqual(json.loads((self.root/'store.json').read_text())['dae.config.config_file'],'/etc/dae/custom.dae')
         self.assertTrue((self.root/'running').exists())
