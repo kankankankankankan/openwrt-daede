@@ -86,5 +86,29 @@ jobs:
           else
             gh pr edit "$pr_number" --title "$title" --body "$body"
           fi
+          # GitHub auto-merge is immediate when no branch protection is configured.
+          # Poll the dedicated PR check explicitly so a failed check can never merge.
+          for attempt in $(seq 1 60); do
+            checks=$(gh pr view "$pr_number" --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.name == "tests") | {status, conclusion}] | if length == 0 then "pending" elif any(.[]; .status != "COMPLETED") then "pending" elif all(.[]; .conclusion == "SUCCESS") then "success" else "failure" end')
+            case "$checks" in
+              success) break ;;
+              failure)
+                echo "::error::upstream sync PR checks failed; leaving PR open for investigation."
+                exit 1
+                ;;
+              pending)
+                echo "Waiting for upstream sync PR checks ($attempt/60)."
+                sleep 30
+                ;;
+              *)
+                echo "::error::unexpected PR check state: $checks"
+                exit 1
+                ;;
+            esac
+            if [ "$attempt" -eq 60 ]; then
+              echo "::error::timed out waiting for upstream sync PR checks."
+              exit 1
+            fi
+          done
           # Merge commit preserves the upstream baseline as a distinct parent.
-          gh pr merge "$pr_number" --auto --merge --delete-branch
+          gh pr merge "$pr_number" --merge --delete-branch

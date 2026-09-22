@@ -23,7 +23,8 @@ class WorkflowGates(unittest.TestCase):
         self.assertIn("UPSTREAM_REPOSITORY: kenzok8/openwrt-daede", source)
         self.assertIn("git merge --no-ff --no-edit", source)
         self.assertIn("git diff --name-only --diff-filter=U", source)
-        self.assertIn("gh pr merge \"$pr_number\" --auto --merge", source)
+        self.assertIn('gh pr merge "$pr_number" --merge --delete-branch', source)
+        self.assertIn('select(.name == "tests")', source)
         self.assertIn("pull_request:", (ROOT / '.github/workflows/upstream-sync-check.yml').read_text())
 
     def release_gate(self, outcome, missing=None):

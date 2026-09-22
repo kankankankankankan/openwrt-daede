@@ -22,7 +22,9 @@ jobs:
         run: node --test tests/*.test.cjs
       - name: Run Python regression tests
         run: |
-          python3 -m unittest discover -s tests -p '*test.py' -v
+          for test_file in tests/*-test.py; do
+            python3 "$test_file"
+          done
       - name: Validate workflow and shell syntax
         run: |
           bash -n scripts/audit-upstream.sh
