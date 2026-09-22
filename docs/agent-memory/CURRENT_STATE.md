@@ -10,6 +10,7 @@
 - SDK：24.10 IPK / 25.12 APK 的 dae、daed、LuCI、vmlinux-btf 四包与索引均通过，最终退出码均为 0。两套核心包通过版本命令冒烟、LuCI r9 通过脚本/JS/唯一中文 LMO 检查、BTF 基本格式检查通过；真实 dae 校验生成配置 3/3。环境处理：Lua 串行预编译；BTF 外层 -j1、内层 PKG_JOBS=-j4；25.12 仅去除 SDK 生成元数据中的两条恒真约束，完整配置字节不变；24.10 以空 CONFIG_SIGNED_PACKAGES 生成未签名索引。详见验证报告，不能视为未修改的完整发布工作流通过。
 - 未验证：真实浏览器 LuCI 主题、路由器 eBPF/联网与服务运行。
 - 当前交付：用户已授权上传 GitHub；从已验收的 `e0775a1` 建立 `sync/ff110-upstream-baseline` 推送分支，排除运行时自动保存的 SDK 缓存提交 `2259b3f`。产品和测试与 `946327d` 一致，本次只补充交付记录。
-- 下一步：推送分支并创建面向 main 的 PR，待人工 review 后以 merge commit 合并。发布前仍需真实 LuCI/设备/eBPF 和实际发布环境验证。后续自动同步和 release 冲突消解属于独立阶段。
+- GitHub 交付：分支已推送，PR #4（https://github.com/kankankankankankan/openwrt-daede/pull/4）面向 main，待人工 review 后以 merge commit 合并。main 仍为 `ad3ed69`。本轮重跑 Node 35/35、会员同步 15/15、配置生成 4/4、工作流门槛 4/4、资产 mock 自测均通过；产品内容未变，复用此前独立复审和 SDK 证据。当前工作流没有 push 分支或 PR 检查触发器。
+- 下一步：审阅并合并 PR #4；发布前仍需真实 LuCI/设备/eBPF 和实际发布环境验证。后续自动同步和 release 冲突消解属于独立阶段。
 - 交付：验证报告、项目阅读记录、增量 Git bundle 和验证日志归档；构建容器均已退出，SDK 镜像与任务缓存保留供复验。记录已保存，未做跨会话恢复行为验收。
 - 待合并检查点：无。本目录记录已落盘，未做跨会话恢复行为验收。
