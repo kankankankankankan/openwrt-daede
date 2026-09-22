@@ -1,0 +1,90 @@
+name: Sync upstream openwrt-daede
+
+on:
+  schedule:
+    - cron: '15 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPOSITORY: kenzok8/openwrt-daede
+  SYNC_BRANCH: sync/upstream-main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge the latest upstream main
+        id: merge
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch --no-tags origin main
+          git fetch --no-tags upstream main
+          origin_sha=$(git rev-parse refs/remotes/origin/main)
+          upstream_sha=$(git rev-parse refs/remotes/upstream/main)
+          echo "origin_sha=$origin_sha" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$upstream_sha" "$origin_sha"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "main already contains upstream $upstream_sha."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$SYNC_BRANCH" "refs/remotes/origin/main"
+          if ! git merge --no-ff --no-edit "$upstream_sha"; then
+            echo "::error::upstream merge has conflicts; automatic merge stopped."
+            git diff --name-only --diff-filter=U | sed 's/^/::error file=/'
+            exit 1
+          fi
+          sync_sha=$(git rev-parse HEAD)
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "sync_sha=$sync_sha" >> "$GITHUB_OUTPUT"
+          # This branch is fully owned by this workflow and is recreated from
+          # origin/main on every run, so replacing it is intentional.
+          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+
+      - name: Create or update upstream sync pull request
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_SHA: ${{ steps.merge.outputs.origin_sha }}
+          UPSTREAM_SHA: ${{ steps.merge.outputs.upstream_sha }}
+          SYNC_SHA: ${{ steps.merge.outputs.sync_sha }}
+        run: |
+          set -euo pipefail
+          title="chore: sync upstream openwrt-daede"
+          body=$(cat <<EOF
+          This pull request syncs \\`$UPSTREAM_REPOSITORY:main\\` into \\`main\\`.
+
+          - Downstream base: \\`$ORIGIN_SHA\\`
+          - Upstream tip: \\`$UPSTREAM_SHA\\`
+          - Candidate merge: \\`$SYNC_SHA\\`
+
+          The pull request check workflow must pass before GitHub's merge queue merges this with a merge commit. If the merge has conflicts, the scheduled job stops without opening a pull request.
+          EOF
+          )
+          pr_number=$(gh pr list --state open --head "$SYNC_BRANCH" --base main --json number --jq '.[0].number // empty')
+          if [ -z "$pr_number" ]; then
+            pr_url=$(gh pr create --base main --head "$SYNC_BRANCH" --title "$title" --body "$body")
+            pr_number=${pr_url##*/}
+          else
+            gh pr edit "$pr_number" --title "$title" --body "$body"
+          fi
+          # Merge commit preserves the upstream baseline as a distinct parent.
+          gh pr merge "$pr_number" --auto --merge --delete-branch

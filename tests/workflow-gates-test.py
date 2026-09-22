@@ -18,6 +18,14 @@ def workflow_step(filename, name):
 
 
 class WorkflowGates(unittest.TestCase):
+    def test_upstream_sync_workflow_has_conflict_stop_and_merge_gate(self):
+        source = (ROOT / '.github/workflows/upstream-sync.yml').read_text()
+        self.assertIn("UPSTREAM_REPOSITORY: kenzok8/openwrt-daede", source)
+        self.assertIn("git merge --no-ff --no-edit", source)
+        self.assertIn("git diff --name-only --diff-filter=U", source)
+        self.assertIn("gh pr merge \"$pr_number\" --auto --merge", source)
+        self.assertIn("pull_request:", (ROOT / '.github/workflows/upstream-sync-check.yml').read_text())
+
     def release_gate(self, outcome, missing=None):
         step = workflow_step('release.yml', 'Require all release packages')
         self.assertIn('SDK_OUTCOME: ${{ steps.sdk.outcome }}', step)
