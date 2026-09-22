@@ -8,7 +8,7 @@ on:
     inputs:
       packages:
         description: Packages to build
-        default: "dae daed"
+        default: "dae-daede daed-daede"
       arch:
         description: Architecture (all for release matrix)
         type: choice

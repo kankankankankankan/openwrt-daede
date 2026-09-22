@@ -6,8 +6,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
 PKG_VERSION:=1.15
-# 2026-09-23: fix installed versions and retire GeoData acceleration.
-PKG_RELEASE:=10
+# 2026-09-23: depend on unambiguous custom core package identities.
+PKG_RELEASE:=11
 PKG_MAINTAINER:=kenzok8
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
@@ -34,7 +34,7 @@ define Package/$(PKG_NAME)
 	CATEGORY:=LuCI
 	SUBMENU:=3. Applications
 	TITLE:=LuCI app for daede dashboard
-	DEPENDS:=+luci-base +curl +ca-bundle +PACKAGE_$(PKG_NAME)_dae:dae +PACKAGE_$(PKG_NAME)_daed:daed
+	DEPENDS:=+luci-base +curl +ca-bundle +PACKAGE_$(PKG_NAME)_dae:dae-daede +PACKAGE_$(PKG_NAME)_daed:daed-daede
 	PKGARCH:=all
 	MAINTAINER:=kenzok8
 endef
@@ -84,8 +84,8 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/snapshot-file.sh $(1)/usr/share/luci-app-daede/snapshot-file.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/config-defaults.sh $(1)/usr/share/luci-app-daede/config-defaults.sh
 	$(INSTALL_DIR) $(1)/usr/share/luci-app-daede/defaults
-	$(INSTALL_DATA) $(CURDIR)/../dae/files/dae.config $(1)/usr/share/luci-app-daede/defaults/dae
-	$(INSTALL_DATA) $(CURDIR)/../daed/files/daed.config $(1)/usr/share/luci-app-daede/defaults/daed
+	$(INSTALL_DATA) $(CURDIR)/../dae-daede/files/dae.config $(1)/usr/share/luci-app-daede/defaults/dae
+	$(INSTALL_DATA) $(CURDIR)/../daed-daede/files/daed.config $(1)/usr/share/luci-app-daede/defaults/daed
 	$(INSTALL_DATA) ./root/etc/config/daede $(1)/usr/share/luci-app-daede/defaults/daede
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/refresh-index.sh $(1)/usr/share/luci-app-daede/refresh-index.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/geo-cron.sh $(1)/usr/share/luci-app-daede/geo-cron.sh

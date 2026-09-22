@@ -124,9 +124,9 @@ function probePkg(pkg) {
 	return fs.exec('/usr/share/luci-app-daede/pkg-info.sh', [pkg]).then(function(res) {
 		// 2026-09-23: a leading tab means absent, not an installed candidate.
 		const out = (res.stdout || '').replace(/[\r\n]+$/, '').split('\t');
-		return { installed: out[0] || '', latest: out[1] || '' };
+		return { installed: out[0] || '', latest: out[1] || '', state: out[2] || '' };
 	}).catch(function() {
-		return { installed: '', latest: '' };
+		return { installed: '', latest: '', state: '' };
 	});
 }
 
@@ -392,9 +392,13 @@ return view.extend({
 					// a stale compile-jell build) must never be offered as an upgrade.
 					const cmp = (entry.r.installed && entry.r.latest)
 						? cmpVer(entry.r.latest, entry.r.installed) : null;
-					const updatable = cmp !== null && cmp > 0;
+					const updatable = !entry.r.state && cmp !== null && cmp > 0;
 					let meta;
-					if (!entry.r.installed) {
+					if (entry.r.state === 'migration-required') {
+						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('Legacy core package: back up configuration and migrate to the daede package first.');
+						btn.disabled = true;
+						btn.textContent = _('Migration required');
+					} else if (!entry.r.installed) {
 						meta = _('not installed via package manager');
 						btn.disabled = true;
 						btn.textContent = _('Unavailable');
