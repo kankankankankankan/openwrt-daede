@@ -5,7 +5,7 @@
 # in /tmp prevents concurrent runs.
 
 TYPE="$1"
-# Default source: direct Loyalsoldier/v2ray-rules-dat. Acceleration is selected in LuCI.
+# Default source: direct Loyalsoldier/v2ray-rules-dat.
 # Users can override per-type via
 # daede.config.geoip_url / geosite_url (empty falls back to the default below).
 case "$TYPE" in
@@ -24,6 +24,8 @@ case "$TYPE" in
 		exit 64
 		;;
 esac
+# 2026-09-23: old backups may still contain the removed acceleration preset.
+[ "$URL" != "https://ghfast.top/$DEF_URL" ] || URL="$DEF_URL"
 [ -n "$URL" ] || URL="$DEF_URL"
 
 LOCK="/tmp/luci-app-daede.${TYPE}.lock"

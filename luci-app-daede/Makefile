@@ -6,8 +6,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
 PKG_VERSION:=1.15
-# 2026-09-22: baseline sync uses max(downstream 8, upstream 3) + 1.
-PKG_RELEASE:=9
+# 2026-09-23: fix installed versions and retire GeoData acceleration.
+PKG_RELEASE:=10
 PKG_MAINTAINER:=kenzok8
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
