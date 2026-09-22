@@ -27,8 +27,8 @@ else
 fi
 
 [[ -f "$repo/ci/pins.env" ]] || fail "missing $repo/ci/pins.env"
-[[ -f "$repo/dae/Makefile" ]] || fail "missing $repo/dae/Makefile"
-[[ -f "$repo/daed/Makefile" ]] || fail "missing $repo/daed/Makefile"
+[[ -f "$repo/dae-daede/Makefile" ]] || fail "missing $repo/dae-daede/Makefile"
+[[ -f "$repo/daed-daede/Makefile" ]] || fail "missing $repo/daed-daede/Makefile"
 
 required_pin_vars=(
     DAE_VERSION DAED_VERSION DAED_COMMIT WING_COMMIT CORE_COMMIT
@@ -77,7 +77,7 @@ hash_file() {
 }
 
 for package in dae daed; do
-    makefile="$repo/$package/Makefile"
+    makefile="$repo/$package-daede/Makefile"
     version=$(make_value "$makefile" PKG_VERSION)
     pins_version=$(printf '%s' "$package" | tr '[:lower:]' '[:upper:]')_VERSION
     [[ "$version" = "${!pins_version}" ]] || fail "$package Makefile version does not match ci/pins.env"
@@ -96,10 +96,10 @@ for package in dae daed; do
 done
 
 patch_dirs=(
-    dae/patches
-    dae/patches_arm
-    daed/patches
-    daed/patches_arm
+    dae-daede/patches
+    dae-daede/patches_arm
+    daed-daede/patches
+    daed-daede/patches_arm
     ci/patches/outbound
     ci/patches/quic-go
 )
@@ -146,7 +146,7 @@ apply_tree_patches() {
 }
 
 download_source() {
-    local package=$1 makefile="$repo/$1/Makefile" source source_url source_hash archive extract_dir actual_hash
+    local package=$1 makefile="$repo/$1-daede/Makefile" source source_url source_hash archive extract_dir actual_hash
     source=$(make_value "$makefile" PKG_SOURCE)
     source_url=$(make_value "$makefile" PKG_SOURCE_URL)
     source_hash=$(make_value "$makefile" PKG_HASH)
@@ -164,15 +164,15 @@ download_source() {
 dae_source=$(download_source dae)
 [[ -d "$dae_source/core" ]] || fail "missing assembled dae core: $dae_source/core"
 cp -a "$dae_source" "$audit_tmp/dae-arm"
-apply_tree_patches "$dae_source/core" dae/patches
-apply_tree_patches "$audit_tmp/dae-arm/core" dae/patches_arm
+apply_tree_patches "$dae_source/core" dae-daede/patches
+apply_tree_patches "$audit_tmp/dae-arm/core" dae-daede/patches_arm
 
 daed_source=$(download_source daed)
 [[ -d "$daed_source/wing" ]] || fail "missing assembled daed wing: $daed_source/wing"
 cp -a "$daed_source" "$audit_tmp/daed-arm"
-apply_tree_patches "$daed_source/wing" daed/patches
-apply_tree_patches "$audit_tmp/daed-arm/wing" daed/patches no_count
-apply_tree_patches "$audit_tmp/daed-arm/wing" daed/patches_arm
+apply_tree_patches "$daed_source/wing" daed-daede/patches
+apply_tree_patches "$audit_tmp/daed-arm/wing" daed-daede/patches no_count
+apply_tree_patches "$audit_tmp/daed-arm/wing" daed-daede/patches_arm
 
 fetch_exact() {
     local url=$1 commit=$2 target=$3 resolved

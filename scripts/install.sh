@@ -156,9 +156,9 @@ package_sdks() {
 # resolve the luci-app-daede -> core dependency from local files).
 wanted_pkgs() {
   case "$DAEDE_CORE" in
-    dae)  printf 'dae\nluci-app-daede\n' ;;
-    both) printf 'dae\ndaed\nluci-app-daede\n' ;;
-    *)    printf 'daed\nluci-app-daede\n' ;;
+    dae)  printf 'dae-daede\nluci-app-daede\n' ;;
+    both) printf 'dae-daede\ndaed-daede\nluci-app-daede\n' ;;
+    *)    printf 'daed-daede\nluci-app-daede\n' ;;
   esac
 }
 
@@ -171,9 +171,9 @@ manifest_value() {
 }
 
 # Resolve every wanted package from the R2 feed manifest. Manifest lines look like:
-#   dae=dae_..._<arch>.ipk
-#   dae_sha256=<hex>           (optional)
-#   daed=...
+#   dae-daede=dae-daede_..._<arch>.ipk
+#   dae-daede_sha256=<hex>           (optional)
+#   daed-daede=...
 #   luci-app-daede=...
 resolve_from_manifest() {
   sdk="$1"
@@ -284,11 +284,30 @@ ensure_btf() {
   return 1
 }
 
+# 2026-09-23: package identity changes require an explicit, backed-up migration.
+reject_legacy_core() {
+  for legacy in dae daed; do
+    if [ "$PM" = opkg ]; then
+      installed=$(opkg status "$legacy" 2>/dev/null || true)
+      printf '%s\n' "$installed" | grep -q '^Status: .* installed$' || continue
+    else
+      apk info --exists "$legacy" >/dev/null 2>&1 || continue
+    fi
+    echo "[ERROR] Legacy package '$legacy' is installed; automatic migration is disabled."
+    echo "        Back up configuration and the daed database, then explicitly remove"
+    echo "        the old core package before installing dae-daede/daed-daede."
+    echo "        No package was removed or upgraded by this installer."
+    return 1
+  done
+}
+
 PM="$(detect_manager)"
 if [ "$PM" = "unsupported" ]; then
   echo "No supported package manager (opkg/apk)."
   exit 1
 fi
+
+reject_legacy_core || exit 1
 
 ARCH="$(detect_arch "$PM")"
 [ -n "$ARCH" ] || { echo "Cannot detect architecture"; exit 1; }
