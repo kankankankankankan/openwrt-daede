@@ -6,8 +6,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
 PKG_VERSION:=1.15
-# 2026-09-18: bump release so firmware builds pick up the sync layout fix.
-PKG_RELEASE:=8
+# 2026-09-22: baseline sync uses max(downstream 8, upstream 3) + 1.
+PKG_RELEASE:=9
 PKG_MAINTAINER:=kenzok8
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
