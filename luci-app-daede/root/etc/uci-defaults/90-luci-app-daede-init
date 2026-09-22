@@ -48,6 +48,17 @@ if ! uci -q get daede.config >/dev/null 2>&1; then
 	uci -q commit daede
 fi
 
+# 2026-09-23: retire the built-in acceleration preset, preserving custom URLs.
+geo_changed=0
+for geo_kind in geoip geosite; do
+	geo_url="$(uci -q get daede.config.${geo_kind}_url || true)"
+	if [ "$geo_url" = "https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/${geo_kind}.dat" ]; then
+		uci -q set "daede.config.${geo_kind}_url="
+		geo_changed=1
+	fi
+done
+[ "$geo_changed" = 0 ] || uci -q commit daede
+
 # Remove --disable-timestamp from dae init so log lines carry timestamps
 DAE_INIT="/etc/init.d/dae"
 if [ -f "$DAE_INIT" ]; then

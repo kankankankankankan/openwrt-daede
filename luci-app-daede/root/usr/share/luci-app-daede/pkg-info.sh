@@ -38,13 +38,5 @@ elif command -v opkg >/dev/null 2>&1; then
 	latest=$(opkg info "$PKG" 2>/dev/null | awk -F': ' '$1=="Version"{print $2; exit}')
 fi
 
-case "$PKG" in
-	dae|daed)
-		case "$installed" in
-			20[0-9][0-9].[0-9]*) ;;
-			*) installed="" ;;
-		esac
-		;;
-esac
-
+# 2026-09-23: retain real package versions, including upstream semver builds.
 printf '%s\t%s\n' "$installed" "$latest"

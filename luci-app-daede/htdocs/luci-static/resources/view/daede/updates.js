@@ -18,10 +18,6 @@ const DATA_PATHS = {
 // default lives in one place — update-geo.sh — avoiding UI/script drift.
 const GEO_PRESETS = {
 	loyalsoldier: { geoip: '', geosite: '' },
-	githubAccelerated: {
-		geoip:   'https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat',
-		geosite: 'https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
-	},
 	v2fly: {
 		geoip:   'https://github.com/v2fly/geoip/releases/latest/download/geoip.dat',
 		geosite: 'https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat'
@@ -30,7 +26,6 @@ const GEO_PRESETS = {
 
 function currentPreset(gi, gs) {
 	if (!gi && !gs) return 'loyalsoldier';
-	if (gi === GEO_PRESETS.githubAccelerated.geoip && gs === GEO_PRESETS.githubAccelerated.geosite) return 'githubAccelerated';
 	if (gi === GEO_PRESETS.v2fly.geoip && gs === GEO_PRESETS.v2fly.geosite) return 'v2fly';
 	return 'custom';
 }
@@ -127,7 +122,8 @@ function probeFile(path) {
 
 function probePkg(pkg) {
 	return fs.exec('/usr/share/luci-app-daede/pkg-info.sh', [pkg]).then(function(res) {
-		const out = (res.stdout || '').trim().split('\t');
+		// 2026-09-23: a leading tab means absent, not an installed candidate.
+		const out = (res.stdout || '').replace(/[\r\n]+$/, '').split('\t');
 		return { installed: out[0] || '', latest: out[1] || '' };
 	}).catch(function() {
 		return { installed: '', latest: '' };
@@ -483,7 +479,6 @@ return view.extend({
 
 			const presetSel = E('select', {}, [
 				E('option', { 'value': 'loyalsoldier' }, 'Loyalsoldier'),
-				E('option', { 'value': 'githubAccelerated' }, 'GitHub 加速（ghfast.top）'),
 				E('option', { 'value': 'v2fly' }, 'v2fly'),
 				E('option', { 'value': 'custom' }, _('Custom'))
 			]);
@@ -517,8 +512,7 @@ return view.extend({
 				let gi = '', gs = '';
 				const geoAuto = autoSel.value !== 'off';
 				const geoFreq = autoSel.value === 'weekly' ? 'weekly' : 'daily';
-				if (p === 'githubAccelerated') { gi = GEO_PRESETS.githubAccelerated.geoip; gs = GEO_PRESETS.githubAccelerated.geosite; }
-				else if (p === 'v2fly') { gi = GEO_PRESETS.v2fly.geoip; gs = GEO_PRESETS.v2fly.geosite; }
+				if (p === 'v2fly') { gi = GEO_PRESETS.v2fly.geoip; gs = GEO_PRESETS.v2fly.geosite; }
 				else if (p === 'custom') { gi = giInput.value.trim(); gs = gsInput.value.trim(); }
 				uci.set('daede', 'config', 'geoip_url', gi);
 				uci.set('daede', 'config', 'geosite_url', gs);
