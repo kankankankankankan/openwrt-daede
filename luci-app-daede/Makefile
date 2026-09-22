@@ -6,8 +6,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
 PKG_VERSION:=1.15
-# 2026-09-23: depend on unambiguous custom core package identities.
-PKG_RELEASE:=11
+# 2026-09-23: add distinct core dependencies after the r11 cloud startup fixes.
+PKG_RELEASE:=12
 PKG_MAINTAINER:=kenzok8
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
