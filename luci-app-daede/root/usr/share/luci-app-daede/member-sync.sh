@@ -109,7 +109,7 @@ add_quota() {
  [ -z "$q_remaining" ] || json_add_double remaining "$q_remaining"
  json_close_object
 }
-service() { "$ROOT/etc/init.d/dae" "$@" >/dev/null 2>&1; }
+service() { "$ROOT/etc/init.d/dae" "$@" >>"$WORK/service.log" 2>&1; }
 case "$1" in
  status)
   logged=0; QUOTA_STATUS=unauthenticated; note="$(get daede.member.warning)"
@@ -197,6 +197,9 @@ case "$1" in
    sleep 2; service running && apply_ok=1
   fi
   if [ "$apply_ok" != 1 ]; then
+   # 2026-09-23: stop_service deletes dae.log; preserve failure evidence before rollback.
+   { cat "$WORK/service.log"; [ ! -f "$ROOT/var/log/dae/dae.log" ] || tail -n 100 "$ROOT/var/log/dae/dae.log"; } > "$STATE/last-start.log"
+   chmod 600 "$STATE/last-start.log"
    service stop || :
    if [ "$HAD" = 1 ]; then cp "$WORK/previous" "$CONF.member-new" && mv "$CONF.member-new" "$CONF"; else rm -f "$CONF"; fi
    uci import dae < "$WORK/dae.uci" && uci commit dae
@@ -204,13 +207,12 @@ case "$1" in
    [ "$WAS_ENABLED" = 1 ] && service enable || service disable
    recovered=1
    if [ "$WAS_RUNNING" = 1 ]; then service restart && sleep 2 && service running || recovered=0; fi
-   [ "$recovered" = 1 ] && error 'New configuration failed to start; previous configuration restored'
+   [ "$recovered" = 1 ] && error 'New configuration failed to start; previous configuration restored. See /tmp/daede-member/last-start.log'
    error 'New configuration failed and previous service could not restart; check the dae service log'
   fi
-  # Keep successful member sync beginner-friendly: configure the same
-  # accelerated GitHub geo data source exposed by the Data Updates page.
-  uci set daede.config.geoip_url='https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
-  uci set daede.config.geosite_url='https://ghfast.top/https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
+  # 2026-09-23: cloud sync must not restore the retired acceleration URLs.
+  uci set daede.config.geoip_url='https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
+  uci set daede.config.geosite_url='https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
   uci set daede.config.geo_auto='1'
   uci set daede.config.geo_auto_freq='daily'
   uci commit daede || error 'Configuration is running but data update settings could not be saved'
