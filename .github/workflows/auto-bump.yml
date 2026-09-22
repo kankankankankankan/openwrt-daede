@@ -475,12 +475,13 @@ jobs:
             fi
           }
           wait_run() {
-            local id=$1 fails=0 out status conclusion
+            local id=$1 fails=0 out status conclusion release_sha
             while :; do
               if out=$(gh run view "$id" --json status,conclusion,headSha \
-                --jq '.status + " " + (.conclusion // "") + " " + .headSha' 2>&1); then
+                --jq '.status + " " + .headSha + " " + (.conclusion // "")' 2>&1); then
                 fails=0
-                read -r status conclusion release_sha <<<"$out"
+                # 2026-09-22: keep the optional conclusion last; read collapses empty fields.
+                read -r status release_sha conclusion <<<"$out"
                 require_sha "$release_sha" release-run
                 if [ "$release_sha" != "$TESTED_SHA" ]; then
                   echo "::error::release run $id moved to $release_sha, expected $TESTED_SHA"

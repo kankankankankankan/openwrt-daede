@@ -53,6 +53,7 @@ jobs:
           df -h /
 
       - name: Build packages
+        id: sdk
         continue-on-error: true
         uses: ./.github/actions/gh-action-sdk
         env:
@@ -72,8 +73,15 @@ jobs:
           GOLANG_BRANCH: '1.26'
 
       - name: Require all release packages
+        env:
+          SDK_OUTCOME: ${{ steps.sdk.outcome }}
         run: |
           set -euo pipefail
+          # 2026-09-22: leftover package files cannot authorize a failed SDK build.
+          if [ "$SDK_OUTCOME" != success ]; then
+            echo "::error::SDK action concluded $SDK_OUTCOME"
+            exit 1
+          fi
           output_dir="bin/packages/${{ matrix.arch }}/daede"
           for package in dae daed luci-app-daede vmlinux-btf; do
             found=0
