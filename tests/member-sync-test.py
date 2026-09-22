@@ -8,7 +8,7 @@ class MemberSyncTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.tmp.name)
-        for directory in ['tmp', 'etc/dae', 'etc/init.d', 'usr/bin', 'usr/share/libubox', 'sys/class/net/br-lan', 'bin']:
+        for directory in ['tmp', 'etc/dae', 'etc/init.d', 'usr/bin', 'usr/share/libubox', 'usr/share/luci-app-daede', 'sys/class/net/br-lan', 'bin']:
             (self.root / directory).mkdir(parents=True, exist_ok=True)
         self.env = dict(os.environ, DAEDE_MEMBER_TEST_ROOT=str(self.root), PATH=str(self.root / 'bin') + ':' + os.environ['PATH'])
         self.write('store.json', json.dumps({'daede.config.active_backend':'dae', 'dae.config.enabled':'0', 'dae.config.config_file':'/etc/dae/custom.dae'}))
@@ -83,6 +83,15 @@ case "$1" in
 esac
 ''', executable=True)
         self.write('bin/sleep', '#!/bin/sh\nexit 0\n', executable=True)
+        # 2026-09-22: sync also enables GeoData updates; run the real helper
+        # against isolated crontab/service paths, never the host's /etc.
+        geo_cron = SCRIPT.with_name('geo-cron.sh').read_text()
+        for path in ['/etc/crontabs', '/etc/init.d/cron']:
+            geo_cron = geo_cron.replace(path, str(self.root) + path)
+        self.write('usr/share/luci-app-daede/geo-cron.sh', geo_cron, executable=True)
+        self.write('etc/init.d/cron', '''#!/bin/sh
+printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
+''', executable=True)
     def tearDown(self): self.tmp.cleanup()
     def write(self, path, data, executable=False):
         p=self.root/path; p.write_text(data)
@@ -161,6 +170,29 @@ esac
         self.write('api-convert.json', json.dumps({'job': {'id': 'test-job', 'warnings': []}}))
         self.assertEqual(self.run_action('sync').get('warning'), '')
         self.assertEqual(json.loads((self.root/'store.json').read_text()).get('daede.member.warning'), '')
+
+    def test_sync_enables_geo_schedule_without_duplicate_entries(self):
+        self.assertTrue(self.login()['ok'])
+        for _ in range(2):
+            result = self.run_action('sync')
+            self.assertTrue(result['ok'], result)
+        crontab = (self.root/'etc/crontabs/root').read_text()
+        self.assertEqual(crontab.count('# luci-app-daede geo-update'), 1)
+        self.assertIn('17 4 * * * /usr/share/luci-app-daede/update-geo.sh geoip;', crontab)
+        self.assertEqual((self.root/'cron-calls').read_text().splitlines(),
+                         ['enable', 'restart', 'enable', 'restart'])
+        store = json.loads((self.root/'store.json').read_text())
+        self.assertEqual(store['daede.config.geo_auto'], '1')
+        self.assertEqual(store['daede.config.geo_auto_freq'], 'daily')
+
+    def test_geo_schedule_failure_is_reported_after_config_starts(self):
+        self.assertTrue(self.login()['ok'])
+        self.write('usr/share/luci-app-daede/geo-cron.sh', '#!/bin/sh\nexit 1\n', executable=True)
+        result = self.run_action('sync')
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], 'Configuration is running but data update schedule could not be enabled')
+        self.assertTrue((self.root/'running').exists())
+        self.assertIn('br-lan', (self.root/'etc/dae/config.dae').read_text())
 
     def test_real_warnings_and_stale_snapshot_remain_visible(self):
         self.login()
