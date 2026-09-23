@@ -2,7 +2,7 @@ name: Assemble daed source
 
 # Assembles one pinned, self-contained daed source tarball (all repos at fixed
 # commits from ci/pins.env + prebuilt web), uploads it to the daed-src release,
-# and writes PKG_HASH into daed-daede/Makefile. SDK builds then just go-compile it.
+# and writes PKG_HASH into daed/Makefile. SDK builds then just go-compile it.
 
 on:
   workflow_dispatch:
@@ -121,9 +121,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          cur_ver=$(sed -n 's/^PKG_VERSION:=//p' daed-daede/Makefile)
-          cur_rel=$(sed -n 's/^PKG_RELEASE:=//p' daed-daede/Makefile)
-          if [ "$cur_ver" = "${DAED_VERSION}" ] && grep -qx "PKG_SOURCE:=${TARBALL}" daed-daede/Makefile; then
+          cur_ver=$(sed -n 's/^PKG_VERSION:=//p' daed/Makefile)
+          cur_rel=$(sed -n 's/^PKG_RELEASE:=//p' daed/Makefile)
+          if [ "$cur_ver" = "${DAED_VERSION}" ] && grep -qx "PKG_SOURCE:=${TARBALL}" daed/Makefile; then
             echo "no change"; exit 0
           fi
           if [ "$cur_ver" = "${DAED_VERSION}" ]; then
@@ -131,13 +131,13 @@ jobs:
           else
             rel=1
           fi
-          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${DAED_VERSION}/" daed-daede/Makefile
-          sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=${rel}/" daed-daede/Makefile
-          sed -i "s|^PKG_SOURCE:=.*|PKG_SOURCE:=${TARBALL}|" daed-daede/Makefile
-          sed -i "s/^PKG_HASH:=.*/PKG_HASH:=${PKG_HASH}/" daed-daede/Makefile
+          sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${DAED_VERSION}/" daed/Makefile
+          sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=${rel}/" daed/Makefile
+          sed -i "s|^PKG_SOURCE:=.*|PKG_SOURCE:=${TARBALL}|" daed/Makefile
+          sed -i "s/^PKG_HASH:=.*/PKG_HASH:=${PKG_HASH}/" daed/Makefile
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add daed-daede/Makefile
+          git add daed/Makefile
           git diff --cached --quiet && { echo "no change"; exit 0; }
           git commit -m "chore(daed): assemble pinned source ${DAED_VERSION}-${rel}"
           git push origin "HEAD:${{ github.ref_name }}"

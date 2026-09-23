@@ -347,7 +347,7 @@ jobs:
           run_and_wait assemble-daed-src.yml "$current_sha"
           tested_sha=$(fetch_staging_sha)
           # gate: real SDK compile, no publish. gh-action-sdk exits 0 on failure, so assert the packages exist.
-          run_and_wait test-daed-build.yml "$tested_sha" -f packages="dae-daede daed-daede"
+          run_and_wait test-daed-build.yml "$tested_sha" -f packages="dae daed"
           gate_run_id=$LAST_RUN_ID
           after_gate_sha=$(fetch_staging_sha)
           if [ "$after_gate_sha" != "$tested_sha" ]; then
@@ -380,7 +380,7 @@ jobs:
               echo "::error::missing downloaded artifact directory: $artifact"
               exit 1
             }
-            for package in dae-daede daed-daede; do
+            for package in dae daed; do
               found=0
               while IFS= read -r -d '' file; do
                 name=${file##*/}
