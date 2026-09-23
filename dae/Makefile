@@ -4,14 +4,13 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=dae-daede
-# 2026-09-23: unique package identity avoids official feed shadowing.
+PKG_NAME:=dae
 PKG_VERSION:=2026.09.20
 PKG_RELEASE:=3
 
 PKG_SOURCE:=dae-src-2026.09.20-2a846ee5a7e4.tar.gz
 PKG_SOURCE_URL:=https://github.com/kenzok8/openwrt-daede/releases/download/dae-src
-PKG_SOURCE_SUBDIR:=dae-$(PKG_VERSION)
+PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 PKG_HASH:=2a846ee5a7e40f2548f261bc3a0a5e4b1abe0f8324fa147354f574f7c410202c
 
 PKG_LICENSE:=AGPL-3.0-only
@@ -51,45 +50,44 @@ GO_PKG_TARGET_VARS+= \
 	CGO_LDFLAGS="$(TARGET_LDFLAGS) -static -Wl,-s" \
 	GOEXPERIMENT=newinliner,simd
 
-define Package/dae-daede/Default
+define Package/dae/Default
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   URL:=https://github.com/daeuniverse/dae
 endef
 
-define Package/dae-daede
-  $(call Package/dae-daede/Default)
-  CONFLICTS:=dae
+define Package/dae
+  $(call Package/dae/Default)
   TITLE:=A lightweight and high-performance transparent proxy solution
   DEPENDS:=$(GO_ARCH_DEPENDS) \
     +ca-bundle +kmod-sched-core +kmod-sched-bpf \
     +kmod-veth +v2ray-geoip +v2ray-geosite \
     +@KERNEL_XDP_SOCKETS \
-    +DAE_DAEDE_USE_VMLINUX_BTF:vmlinux-btf
+    +DAE_USE_VMLINUX_BTF:vmlinux-btf
 endef
 
-define Package/dae-daede/config
+define Package/dae/config
 	choice
 		prompt "BTF source for CO-RE"
-		default DAE_DAEDE_USE_KERNEL_BTF
-		depends on PACKAGE_dae-daede
+		default DAE_USE_KERNEL_BTF
+		depends on PACKAGE_dae
 
-	config DAE_DAEDE_USE_KERNEL_BTF
+	config DAE_USE_KERNEL_BTF
 		bool "Use kernel BTF (integrated)"
 		depends on KERNEL_DEBUG_INFO_BTF
 
-	config DAE_DAEDE_USE_VMLINUX_BTF
+	config DAE_USE_VMLINUX_BTF
 		bool "Use vmlinux-btf package"
 	endchoice
 endef
 
-define Package/dae-daede/description
+define Package/dae/description
   dae, means goose, is a lightweight and high-performance transparent
   proxy solution.
 endef
 
-define Package/dae-daede/conffiles
+define Package/dae/conffiles
 /etc/dae/config.dae
 /etc/config/dae
 endef
@@ -125,7 +123,7 @@ define Build/Compile
 	$(call GoPackage/Build/Compile)
 endef
 
-define Package/dae-daede/install
+define Package/dae/install
 	$(call GoPackage/Package/Install/Bin,$(PKG_INSTALL_DIR))
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dae $(1)/usr/bin/dae
@@ -141,5 +139,5 @@ define Package/dae-daede/install
 	$(INSTALL_BIN) $(CURDIR)/files/dae.init $(1)/etc/init.d/dae
 endef
 
-$(eval $(call GoBinPackage,dae-daede))
-$(eval $(call BuildPackage,dae-daede))
+$(eval $(call GoBinPackage,dae))
+$(eval $(call BuildPackage,dae))

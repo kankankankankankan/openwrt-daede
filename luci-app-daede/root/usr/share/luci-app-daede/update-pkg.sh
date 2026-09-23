@@ -13,25 +13,6 @@ case "$PKG" in
 		;;
 esac
 
-# 2026-09-23: package migration is not an ordinary in-place upgrade.
-TARGET="$PKG"
-case "$PKG" in
- dae|daed) TARGET="$PKG-daede"; LEGACY_PACKAGES="$PKG" ;;
- luci-app-daede) LEGACY_PACKAGES="dae daed" ;;
-esac
-for legacy_package in $LEGACY_PACKAGES; do
- legacy=""
- if command -v apk >/dev/null 2>&1; then
-  apk info -e "$legacy_package" >/dev/null 2>&1 && legacy=1
- elif command -v opkg >/dev/null 2>&1; then
-  legacy=$(opkg status "$legacy_package" 2>/dev/null | awk -F': ' '$1=="Status" && $2 ~ / installed$/ {print 1}')
- fi
- if [ -n "$legacy" ]; then
-  echo "Migration required: back up configuration and replace $legacy_package with $legacy_package-daede before using Upgrade." >&2
-  exit 65
- fi
-done
-
 # run from a /tmp copy so upgrading luci-app-daede (which replaces this script)
 # can't corrupt the in-flight upgrade
 case "$0" in
@@ -70,10 +51,10 @@ fi
 		# shared apk lock with the bg index refresh (avoid "Unable to lock database")
 		(
 			flock 9
-			apk update 2>&1 || exit $?
-			ver=$(apk list "$TARGET" 2>/dev/null | awk -v p="$TARGET" '$1 ~ "^" p "-[0-9]" { v=$1; sub("^" p "-", "", v); print v }' | sort -V | tail -1)
+			apk update 2>&1
+			ver=$(apk list "$PKG" 2>/dev/null | awk -v p="$PKG" '$1 ~ "^" p "-[0-9]" { v=$1; sub("^" p "-", "", v); print v }' | sort -V | tail -1)
 			if [ -n "$ver" ]; then
-				constraint="$TARGET=$ver"
+				constraint="$PKG=$ver"
 			else
 				echo "result: 软件源中没有找到 $PKG，请检查网络或软件源配置"
 				exit 1
@@ -85,15 +66,15 @@ fi
 			fi
 			echo "--- apk add $constraint ---"
 			apk add "$constraint" 2>&1
-			exit $?
+			exit 0
 		) 9>/tmp/luci-app-daede.apk.lock
 		rc=$?
 		if [ "$rc" != 0 ]; then
 			:
-		elif ! apk list --installed 2>/dev/null | grep -q "^${TARGET}-[0-9]"; then
+		elif ! apk list --installed 2>/dev/null | grep -q "^${PKG}-"; then
 			echo "result: $PKG is not installed"
 			rc=1
-		elif apk list -u 2>/dev/null | grep -q "^${TARGET}-[0-9]"; then
+		elif apk list -u 2>/dev/null | grep -q "^${PKG}-"; then
 			echo "result: $PKG still has a pending upgrade"
 			rc=1
 		else
@@ -103,12 +84,9 @@ fi
 	elif command -v opkg >/dev/null 2>&1; then
 		echo "--- opkg update ---"
 		opkg update 2>&1
+		echo "--- opkg upgrade $PKG ---"
+		opkg upgrade "$PKG" 2>&1
 		rc=$?
-		if [ "$rc" = 0 ]; then
-			echo "--- opkg upgrade $TARGET ---"
-			opkg upgrade "$TARGET" 2>&1
-			rc=$?
-		fi
 	else
 		echo "no package manager found"
 		exit 3

@@ -36,7 +36,7 @@ class WorkflowGates(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             output = Path(d) / 'bin/packages/x86_64/daede'
             output.mkdir(parents=True)
-            for package in ['dae-daede', 'daed-daede', 'luci-app-daede', 'vmlinux-btf']:
+            for package in ['dae', 'daed', 'luci-app-daede', 'vmlinux-btf']:
                 if package != missing:
                     (output / (package + '_1.0_x86_64.ipk')).touch()
             return subprocess.run(['bash', '-c', script], cwd=d,
@@ -49,56 +49,8 @@ class WorkflowGates(unittest.TestCase):
 
     def test_success_requires_every_package(self):
         self.assertEqual(self.release_gate('success').returncode, 0)
-        for package in ['dae-daede', 'daed-daede', 'luci-app-daede', 'vmlinux-btf']:
+        for package in ['dae', 'daed', 'luci-app-daede', 'vmlinux-btf']:
             self.assertNotEqual(self.release_gate('success', missing=package).returncode, 0, package)
-
-    def test_installer_selects_independent_core_packages(self):
-        source = (ROOT / 'scripts/install.sh').read_text()
-        function = re.search(r'^wanted_pkgs\(\) \{.*?^\}', source, re.M | re.S).group()
-        for core, packages in [('dae', ['dae-daede']), ('daed', ['daed-daede']),
-                               ('both', ['dae-daede', 'daed-daede'])]:
-            result = subprocess.run(['sh', '-c', function + '\nwanted_pkgs'],
-                env=dict(os.environ, DAEDE_CORE=core), capture_output=True, text=True, check=True)
-            self.assertEqual(result.stdout.splitlines(), packages + ['luci-app-daede'])
-
-    def test_installer_blocks_legacy_packages_before_resolution(self):
-        source = (ROOT / 'scripts/install.sh').read_text()
-        function = re.search(r'^reject_legacy_core\(\) \{.*?^\}', source, re.M | re.S).group()
-        self.assertLess(source.index('reject_legacy_core || exit 1'), source.index('ARCH="$(detect_arch'))
-        for manager in ['opkg', 'apk']:
-            for legacy in ['', 'dae', 'daed']:
-                # Mock only the read-only queries; mutation calls fail the test.
-                mock = r'''opkg() {
-  [ "$1" = status ] || exit 99
-  [ "$2" != "$LEGACY" ] || printf 'Package: %s\nStatus: install ok installed\n' "$2"
-}
-apk() {
-  [ "$1 $2" = 'info --exists' ] || exit 99
-  [ "$3" = "$LEGACY" ]
-}
-'''
-                result = subprocess.run(['sh', '-c', mock + function + '\nreject_legacy_core'],
-                    env=dict(os.environ, PM=manager, LEGACY=legacy), capture_output=True, text=True)
-                self.assertEqual(result.returncode, 1 if legacy else 0, result.stdout + result.stderr)
-                if legacy:
-                    self.assertIn('automatic migration is disabled', result.stdout)
-                    self.assertIn('Back up configuration', result.stdout)
-
-    def test_release_manifest_uses_new_package_identity(self):
-        step = workflow_step('release.yml', 'Organize feed structure')
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            feed = root / 'artifacts/packages-sdk24.10-x86_64/feed'
-            feed.mkdir(parents=True)
-            packages = ['dae-daede', 'daed-daede', 'luci-app-daede']
-            for package in packages:
-                (feed / (package + '_1.0_x86_64.ipk')).write_bytes(b'package')
-            subprocess.run(['bash', '-c', script], cwd=d, capture_output=True, check=True)
-            manifest = (root / 'feed/24.10/x86_64/manifest-daede.txt').read_text()
-            for package in packages:
-                self.assertIn(package + '=' + package + '_1.0_x86_64.ipk', manifest)
-            self.assertNotRegex(manifest, r'(?m)^(dae|daed)=')
 
     def wait_release(self, states):
         step = workflow_step('auto-bump.yml', 'Dispatch and wait for release')

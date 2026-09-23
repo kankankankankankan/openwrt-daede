@@ -4,14 +4,13 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=daed-daede
-# 2026-09-23: unique package identity avoids official feed shadowing.
+PKG_NAME:=daed
 PKG_VERSION:=2026.09.20
 PKG_RELEASE:=4
 
 PKG_SOURCE:=daed-src-2026.09.20-d00211e69e94.tar.gz
 PKG_SOURCE_URL:=https://github.com/kenzok8/openwrt-daede/releases/download/daed-src
-PKG_SOURCE_SUBDIR:=daed-$(PKG_VERSION)
+PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 PKG_HASH:=d00211e69e94dba09b0f3ab67251b0dad880c7b90fbf55840d3abe576b4453c2
 
 PKG_LICENSE:=AGPL-3.0-only MIT
@@ -37,9 +36,9 @@ GO_PKG:=github.com/daeuniverse/dae-wing
 GO_PKG_LDFLAGS:= \
 	-s -w -buildid= \
 	-linkmode external -extldflags '-static -Wl,-s' \
-	-X '$(GO_PKG)/db.AppDescription=daed is a integration solution of dae, API and UI.'
+	-X '$(GO_PKG)/db.AppDescription=$(PKG_NAME) is a integration solution of dae, API and UI.'
 GO_PKG_LDFLAGS_X:= \
-	$(GO_PKG)/db.AppName=daed \
+	$(GO_PKG)/db.AppName=$(PKG_NAME) \
 	$(GO_PKG)/db.AppVersion=$(PKG_VERSION)
 GO_PKG_TAGS:=embedallowed,trace,timetzdata
 
@@ -52,45 +51,44 @@ GO_PKG_TARGET_VARS+= \
 	CGO_LDFLAGS="$(TARGET_LDFLAGS) -static -Wl,-s" \
 	GOEXPERIMENT=newinliner,simd
 
-define Package/daed-daede/Default
+define Package/daed/Default
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   URL:=https://github.com/daeuniverse/daed
 endef
 
-define Package/daed-daede
-  $(call Package/daed-daede/Default)
-  CONFLICTS:=daed
+define Package/daed
+  $(call Package/daed/Default)
   TITLE:=A Modern Dashboard For dae
   DEPENDS:=$(GO_ARCH_DEPENDS) \
     +ca-bundle +kmod-sched-core +kmod-sched-bpf \
     +kmod-veth +v2ray-geoip +v2ray-geosite \
     +@KERNEL_XDP_SOCKETS \
-    +DAED_DAEDE_USE_VMLINUX_BTF:vmlinux-btf
+    +DAED_USE_VMLINUX_BTF:vmlinux-btf
 endef
 
-define Package/daed-daede/config
+define Package/daed/config
 	choice
 		prompt "BTF source for CO-RE"
-		default DAED_DAEDE_USE_KERNEL_BTF
-		depends on PACKAGE_daed-daede
+		default DAED_USE_KERNEL_BTF
+		depends on PACKAGE_daed
 
-	config DAED_DAEDE_USE_KERNEL_BTF
+	config DAED_USE_KERNEL_BTF
 		bool "Use kernel BTF (integrated)"
 		depends on KERNEL_DEBUG_INFO_BTF
 
-	config DAED_DAEDE_USE_VMLINUX_BTF
+	config DAED_USE_VMLINUX_BTF
 		bool "Use vmlinux-btf package"
 	endchoice
 endef
 
-define Package/daed-daede/description
+define Package/daed/description
   daed is a backend of dae, provides a method to bundle arbitrary
   frontend, dae and geodata into one binary.
 endef
 
-define Package/daed-daede/conffiles
+define Package/daed/conffiles
 /etc/daed/wing.db
 /etc/config/daed
 endef
@@ -130,7 +128,7 @@ define Build/Compile
 	$(call GoPackage/Build/Compile)
 endef
 
-define Package/daed-daede/install
+define Package/daed/install
 	$(call GoPackage/Package/Install/Bin,$(PKG_INSTALL_DIR))
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dae-wing $(1)/usr/bin/daed
@@ -149,5 +147,5 @@ define Package/daed-daede/install
 	$(INSTALL_DATA) $(CURDIR)/files/daed.keep $(1)/lib/upgrade/keep.d/daed
 endef
 
-$(eval $(call GoBinPackage,daed-daede))
-$(eval $(call BuildPackage,daed-daede))
+$(eval $(call GoBinPackage,daed))
+$(eval $(call BuildPackage,daed))
