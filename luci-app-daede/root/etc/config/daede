@@ -1,5 +1,7 @@
 config daede 'config'
 	option active_backend 'dae'
+	option edition 'VIP'
+	option upstream_base '1.15-r5'
 
 # 2026-09-11: Public preferences only; member credentials remain outside UCI.
 config member 'member'

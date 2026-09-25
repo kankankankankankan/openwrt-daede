@@ -6,8 +6,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
 PKG_VERSION:=1.15
-# 2026-09-23: preserve cloud startup errors and keep cloud GeoData URLs direct.
-PKG_RELEASE:=11
+PKG_RELEASE:=100
 PKG_MAINTAINER:=kenzok8
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 

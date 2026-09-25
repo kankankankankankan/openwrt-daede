@@ -311,6 +311,9 @@ msgstr "最新"
 msgid "up to date"
 msgstr "已是最新"
 
+msgid "based on upstream"
+msgstr "基于上游"
+
 msgid "not installed via package manager"
 msgstr "非包管理器安装"
 

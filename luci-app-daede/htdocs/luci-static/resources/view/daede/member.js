@@ -89,11 +89,16 @@ function renderUsage(ctx) {
 	const expiry = typeof quota.expiresText === 'string' && quota.expiresText ? quota.expiresText :
 		expires && Number.isFinite(expires.getTime()) ? '到期 ' + expires.toLocaleDateString() : '到期时间未提供';
 	const warning = percent >= 100 ? ' · 额度已用尽' : percent >= 80 ? ' · 流量即将用尽' : '';
+	const usageTier = percent === null || !Number.isFinite(percent) ? ''
+		: percent >= 100 ? ' dd-quota-t4'
+		: percent >= 80 ? ' dd-quota-t3'
+		: percent >= 60 ? ' dd-quota-t2'
+		: ' dd-quota-t1';
 	nodes.push(E('div', { 'class': 'dd-quota-row dd-quota-meta' }, [
 		text('span', {}, '剩余 ' + formatBytes(remaining) + warning),
 		text('span', {}, expiry)
 	]));
-	return E('section', { 'class': 'dd-quota' + (warning ? ' dd-quota-warning' : ''), 'aria-label': '会员订阅用量' }, nodes);
+	return E('section', { 'class': 'dd-quota' + usageTier + (warning ? ' dd-quota-warning' : ''), 'aria-label': '会员订阅用量' }, nodes);
 }
 
 function render(ctx) {

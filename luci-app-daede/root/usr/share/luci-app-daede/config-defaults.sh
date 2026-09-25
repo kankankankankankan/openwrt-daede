@@ -35,5 +35,11 @@ fi
 if ! uci -q get daede.config.geosite_url >/dev/null 2>&1; then
 	uci -q set daede.config.geosite_url=''
 fi
+if ! uci -q get daede.config.edition >/dev/null 2>&1; then
+	uci -q set daede.config.edition='VIP'
+fi
+if ! uci -q get daede.config.upstream_base >/dev/null 2>&1; then
+	uci -q set daede.config.upstream_base='1.15-r5'
+fi
 uci -q commit dae
 uci -q commit daede
