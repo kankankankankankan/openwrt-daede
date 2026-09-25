@@ -252,6 +252,7 @@ function render(ctx) {
 			E('p', {}, '现有配置会保留。切换后，本地表单保存将重新生成配置。再次同步会员配置会恢复云端模式。'),
 			E('div', { 'class': 'right' }, [
 				E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, '取消'),
+				' ',
 				E('button', { 'class': 'cbi-button cbi-button-action', 'click': function(ev) {
 					ev.currentTarget.disabled = true;
 					invoke('local').then(reload).catch(function(error) { ui.hideModal(); feedback.textContent = error.message; });
