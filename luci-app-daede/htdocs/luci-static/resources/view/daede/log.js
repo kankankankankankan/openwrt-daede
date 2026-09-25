@@ -295,7 +295,7 @@ return view.extend({
 		function applyFilter() {
 			const f = state.filter;
 			pane.querySelectorAll('.dd-line').forEach(function(el) {
-				if (matchesFilter(el._ddRawLine, f))
+				if (matchesFilter(el._rawLine, f))
 					el.classList.remove('dd-hidden');
 				else
 					el.classList.add('dd-hidden');
@@ -309,8 +309,7 @@ return view.extend({
 				const ln = lines[i];
 				if (!ln) continue;
 				const el = buildLine(ln);
-				// 2026-09-22: span text concatenation loses level/word boundaries.
-				el._ddRawLine = ln;
+				el._rawLine = ln;
 				if (!matchesFilter(ln, state.filter))
 					el.classList.add('dd-hidden');
 				frag.appendChild(el);
