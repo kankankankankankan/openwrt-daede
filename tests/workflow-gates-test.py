@@ -53,8 +53,8 @@ class WorkflowGates(unittest.TestCase):
             self.assertNotEqual(self.release_gate('success', missing=package).returncode, 0, package)
 
     def wait_release(self, states):
-        step = workflow_step('auto-bump.yml', 'Dispatch and wait for release')
-        # Extract only the two real functions, never the dispatch/push portion.
+        step = workflow_step('auto-bump.yml', 'Assemble + gate build on staging')
+        # Extract only the two real functions, never the dispatch portion.
         functions = [textwrap.dedent(re.search(
             r'^          ' + name + r'\(\) \{.*?^          \}', step, re.M | re.S).group())
             for name in ['require_sha', 'wait_run']]
@@ -65,37 +65,88 @@ class WorkflowGates(unittest.TestCase):
             mock.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys
 root = pathlib.Path(os.environ['TEST_ROOT'])
-assert sys.argv[1:3] == ['run', 'view'], 'Only read-only polling is allowed'
+argv = sys.argv[1:]
+if argv[:2] == ['workflow', 'run']:
+    print('https://github.com/test/repo/actions/runs/90210')
+    sys.exit(0)
+assert argv[:2] == ['run', 'view'], 'Only read-only polling is allowed'
 counter = root / 'counter'
 index = int(counter.read_text()) if counter.exists() else 0
 states = json.loads((root / 'states.json').read_text())
 if index >= len(states): sys.exit('unexpected extra poll')
 counter.write_text(str(index + 1))
-expression = sys.argv[sys.argv.index('--jq') + 1]
+expression = argv[argv.index('--jq') + 1]
 subprocess.run(['jq', '-r', expression], input=json.dumps(states[index]), text=True, check=True)
 ''')
             mock.chmod(0o700)
             script = 'set -euo pipefail\nsleep() { :; }\n' + '\n'.join(functions) + '\nwait_run 123\n'
             result = subprocess.run(['bash', '-c', script], cwd=d, timeout=10,
-                env=dict(os.environ, TEST_ROOT=d, TESTED_SHA=SHA, PATH=d + ':' + os.environ['PATH'],
-                         release_completed_marker=str(root / 'completed')), capture_output=True, text=True)
-            return result, (root / 'completed').exists()
+                env=dict(os.environ, TEST_ROOT=d, TESTED_SHA=SHA,
+                         STAGING='auto-bump-staging-1-1', PATH=d + ':' + os.environ['PATH']),
+                capture_output=True, text=True)
+            return result
 
-    def test_pending_empty_conclusions_preserve_release_sha(self):
-        result, completed = self.wait_release([
+    def test_pending_empty_conclusions_keep_waiting_until_success(self):
+        result = self.wait_release([
+            dict(status='queued', conclusion=''),
+            dict(status='in_progress', conclusion=None),
+            dict(status='completed', conclusion='success'),
+        ])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_failed_run_conclusion_is_rejected(self):
+        result = self.wait_release([dict(status='completed', conclusion='failure')])
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def run_gate(self, states):
+        step = workflow_step('auto-bump.yml', 'Assemble + gate build on staging')
+        # Extract the dispatch gate and keep the real staging fetch replaced by
+        # a stub so no network git remote is needed.
+        functions = [textwrap.dedent(re.search(
+            r'^          ' + name + r'\(\) \{.*?^          \}', step, re.M | re.S).group())
+            for name in ['require_sha', 'wait_run', 'run_and_wait']]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'states.json').write_text(json.dumps(states))
+            mock = root / 'gh'
+            mock.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, subprocess, sys
+root = pathlib.Path(os.environ['TEST_ROOT'])
+argv = sys.argv[1:]
+if argv[:2] == ['workflow', 'run']:
+    print('https://github.com/test/repo/actions/runs/90210')
+    sys.exit(0)
+assert argv[:2] == ['run', 'view'], 'Only read-only polling is allowed'
+counter = root / 'counter'
+index = int(counter.read_text()) if counter.exists() else 0
+states = json.loads((root / 'states.json').read_text())
+if index >= len(states): sys.exit('unexpected extra poll')
+counter.write_text(str(index + 1))
+expression = argv[argv.index('--jq') + 1]
+subprocess.run(['jq', '-r', expression], input=json.dumps(states[index]), text=True, check=True)
+''')
+            mock.chmod(0o700)
+            script = ('set -euo pipefail\nsleep() { :; }\n' + '\n'.join(functions)
+                      + '\nfetch_staging_sha() { printf \'%s\\n\' "$TESTED_SHA"; }\n'
+                      + 'run_and_wait mock-gate.yml "$TESTED_SHA"\n')
+            result = subprocess.run(['bash', '-c', script], cwd=d, timeout=10,
+                env=dict(os.environ, TEST_ROOT=d, TESTED_SHA=SHA,
+                         STAGING='auto-bump-staging-1-1', PATH=d + ':' + os.environ['PATH']),
+                capture_output=True, text=True)
+            return result
+
+    def test_run_gate_rejects_wrong_or_missing_head_sha(self):
+        for head in ['b' * 40, '']:
+            result = self.run_gate([dict(status='queued', conclusion='', headSha=head)])
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_run_gate_accepts_expected_head_sha_and_waits(self):
+        result = self.run_gate([
             dict(status='queued', conclusion='', headSha=SHA),
             dict(status='in_progress', conclusion=None, headSha=SHA),
             dict(status='completed', conclusion='success', headSha=SHA),
         ])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue(completed)
-
-    def test_failed_release_and_wrong_commit_are_rejected(self):
-        for state in [dict(status='completed', conclusion='failure', headSha=SHA),
-                      dict(status='completed', conclusion='success', headSha='b' * 40),
-                      dict(status='queued', conclusion='', headSha='')]:
-            result, _ = self.wait_release([state])
-            self.assertNotEqual(result.returncode, 0, result.stdout)
 
 
 if __name__ == '__main__':
