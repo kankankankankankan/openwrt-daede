@@ -18,13 +18,14 @@ def workflow_step(filename, name):
 
 
 class WorkflowGates(unittest.TestCase):
-    def test_upstream_sync_workflow_has_conflict_stop_and_merge_gate(self):
+    def test_upstream_sync_workflow_is_path_scoped_and_direct(self):
         source = (ROOT / '.github/workflows/upstream-sync.yml').read_text()
         self.assertIn("UPSTREAM_REPOSITORY: kenzok8/openwrt-daede", source)
-        self.assertIn("git merge --no-ff --no-edit", source)
-        self.assertIn("git diff --name-only --diff-filter=U", source)
-        self.assertIn('gh pr merge "$pr_number" --merge --delete-branch', source)
-        self.assertIn('select(.name == "tests")', source)
+        self.assertIn('SYNC_PATHS: "dae daed vmlinux-btf"', source)
+        self.assertIn('git checkout "${{ steps.upstream.outputs.upstream_sha }}" -- $SYNC_PATHS', source)
+        self.assertIn('luci-app-daede and local CI files stay intact', source)
+        self.assertIn('git push origin HEAD:main', source)
+        self.assertIn('node --test tests/*.test.cjs', source)
         self.assertIn("pull_request:", (ROOT / '.github/workflows/upstream-sync-check.yml').read_text())
 
     def release_gate(self, outcome, missing=None):

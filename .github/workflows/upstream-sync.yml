@@ -1,4 +1,4 @@
-name: Sync upstream openwrt-daede
+name: Sync upstream core packages
 
 on:
   schedule:
@@ -7,108 +7,91 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
-  group: upstream-sync
+  group: upstream-core-sync
   cancel-in-progress: false
 
 env:
   UPSTREAM_REPOSITORY: kenzok8/openwrt-daede
-  SYNC_BRANCH: sync/upstream-main
+  SYNC_PATHS: "dae daed vmlinux-btf"
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository history
+      - name: Check out main
         uses: actions/checkout@v6
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Merge the latest upstream main
-        id: merge
+      - name: Fetch upstream core
+        id: upstream
         run: |
           set -euo pipefail
           git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
           git fetch --no-tags origin main
           git fetch --no-tags upstream main
+
           origin_sha=$(git rev-parse refs/remotes/origin/main)
           upstream_sha=$(git rev-parse refs/remotes/upstream/main)
           echo "origin_sha=$origin_sha" >> "$GITHUB_OUTPUT"
           echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
-          if git merge-base --is-ancestor "$upstream_sha" "$origin_sha"; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "main already contains upstream $upstream_sha."
-            exit 0
-          fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$SYNC_BRANCH" "refs/remotes/origin/main"
-          if ! git merge --no-ff --no-edit "$upstream_sha"; then
-            echo "::error::upstream merge has conflicts; automatic merge stopped."
-            git diff --name-only --diff-filter=U | sed 's/^/::error file=/'
-            exit 1
+          changed=false
+          if ! git diff --quiet "$origin_sha" "$upstream_sha" -- $SYNC_PATHS; then
+            changed=true
           fi
-          sync_sha=$(git rev-parse HEAD)
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "sync_sha=$sync_sha" >> "$GITHUB_OUTPUT"
-          # This branch is fully owned by this workflow and is recreated from
-          # origin/main on every run, so replacing it is intentional.
-          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Local main:    $origin_sha"
+          echo "Upstream main: $upstream_sha"
+          echo "Core changed:  $changed"
 
-      - name: Create or update upstream sync pull request
-        if: steps.merge.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ORIGIN_SHA: ${{ steps.merge.outputs.origin_sha }}
-          UPSTREAM_SHA: ${{ steps.merge.outputs.upstream_sha }}
-          SYNC_SHA: ${{ steps.merge.outputs.sync_sha }}
+      - name: Apply upstream core paths
+        if: steps.upstream.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          title="chore: sync upstream openwrt-daede"
-          body=$(cat <<EOF
-          This pull request syncs \\`$UPSTREAM_REPOSITORY:main\\` into \\`main\\`.
-
-          - Downstream base: \\`$ORIGIN_SHA\\`
-          - Upstream tip: \\`$UPSTREAM_SHA\\`
-          - Candidate merge: \\`$SYNC_SHA\\`
-
-          The pull request check workflow must pass before GitHub's merge queue merges this with a merge commit. If the merge has conflicts, the scheduled job stops without opening a pull request.
-          EOF
-          )
-          pr_number=$(gh pr list --state open --head "$SYNC_BRANCH" --base main --json number --jq '.[0].number // empty')
-          if [ -z "$pr_number" ]; then
-            pr_url=$(gh pr create --base main --head "$SYNC_BRANCH" --title "$title" --body "$body")
-            pr_number=${pr_url##*/}
-          else
-            gh pr edit "$pr_number" --title "$title" --body "$body"
+          # Remove files deleted upstream, then restore only the upstream-owned
+          # package directories. luci-app-daede and local CI files stay intact.
+          deleted=$(git diff --name-only --diff-filter=D \
+            "${{ steps.upstream.outputs.origin_sha }}" \
+            "${{ steps.upstream.outputs.upstream_sha }}" -- $SYNC_PATHS || true)
+          if [ -n "$deleted" ]; then
+            printf '%s\n' "$deleted" | xargs -r git rm -f --
           fi
-          # GitHub auto-merge is immediate when no branch protection is configured.
-          # Poll the dedicated PR check explicitly so a failed check can never merge.
-          for attempt in $(seq 1 60); do
-            checks=$(gh pr view "$pr_number" --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.name == "tests") | {status, conclusion}] | if length == 0 then "pending" elif any(.[]; .status != "COMPLETED") then "pending" elif all(.[]; .conclusion == "SUCCESS") then "success" else "failure" end')
-            case "$checks" in
-              success) break ;;
-              failure)
-                echo "::error::upstream sync PR checks failed; leaving PR open for investigation."
-                exit 1
-                ;;
-              pending)
-                echo "Waiting for upstream sync PR checks ($attempt/60)."
-                sleep 30
-                ;;
-              *)
-                echo "::error::unexpected PR check state: $checks"
-                exit 1
-                ;;
-            esac
-            if [ "$attempt" -eq 60 ]; then
-              echo "::error::timed out waiting for upstream sync PR checks."
-              exit 1
-            fi
-          done
-          # Merge commit preserves the upstream baseline as a distinct parent.
-          gh pr merge "$pr_number" --merge --delete-branch
+          git checkout "${{ steps.upstream.outputs.upstream_sha }}" -- $SYNC_PATHS
+
+      - name: Validate the merged tree
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git diff --check
+          node --test tests/*.test.cjs
+          # These tests cover the sync workflow and package metadata without
+          # starting the long-running member helper harness.
+          python3 tests/workflow-gates-test.py
+          python3 tests/package-info-test.py
+
+      - name: Commit and push core update
+        if: steps.upstream.outputs.changed == 'true'
+        env:
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $SYNC_PATHS
+          git commit -m "chore(sync): update core packages from upstream" \
+            -m "Upstream ${UPSTREAM_REPOSITORY}@${UPSTREAM_SHA}"
+
+          # Rebase a concurrent main change before pushing. The synced paths are
+          # isolated from the local LuCI overlay, so normal updates remain clean.
+          git fetch --no-tags origin main
+          git rebase refs/remotes/origin/main
+          git push origin HEAD:main
+
+      - name: Report unchanged
+        if: steps.upstream.outputs.changed == 'false'
+        run: echo "Upstream core packages are already current."
