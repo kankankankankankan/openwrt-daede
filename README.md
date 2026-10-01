@@ -92,6 +92,22 @@
 - `daed` —— daed app + dae-wing + dae 核心 + outbound + quic-go + 内嵌 Web 面板
 - `luci-app-daede` —— 双内核统一 LuCI 管理界面
 
+## 本地关联项目
+
+本地开发目录位于 `/Users/walkmen/Documents/GitHub`：
+
+| 用途 | 本地目录 | 远程仓库 |
+|------|----------|----------|
+| dae、daed 和 LuCI 插件源码 | `openwrt-daede` | [kankankankankankan/openwrt-daede](https://github.com/kankankankankankan/openwrt-daede) |
+| ImmortalWrt 固件编译 | `ImmortalWrt-Actions` | [kankankankankankan/ImmortalWrt-Actions](https://github.com/kankankankankankan/ImmortalWrt-Actions) |
+| 固件使用的软件源 | `ImmortalWrt-Packages` | [kankankankankankan/ImmortalWrt-Packages](https://github.com/kankankankankankan/ImmortalWrt-Packages) |
+| 规则同步工具 | `cloud-rules-sync` | [kankankankankankan/cloud-rules-sync](https://github.com/kankankankankankan/cloud-rules-sync) |
+| 会员配置中心源码 | `Config-center-master` | [kankankankankankan/ip](https://github.com/kankankankankankan/ip) |
+
+固件编译通过 `ImmortalWrt-Packages` 的 `openwrt-daede` 目录获取 `dae` 和 `daed`，通过本仓库的 LuCI 包提供会员登录、云端配置同步、定时同步和本地编辑功能。
+
+会员同步生成的 `config.dae` 会继续使用当前分流规则。检测网站或云端配置不会自行修改分流，代理、直连、国内 CDN、AI 和 BT 规则都由配置模板中的 dae 规则决定。
+
 ## 安装
 
 ### 一键安装
