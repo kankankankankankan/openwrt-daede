@@ -100,6 +100,7 @@
 |------|----------|----------|
 | dae、daed 和 LuCI 插件源码 | `openwrt-daede` | [kankankankankankan/openwrt-daede](https://github.com/kankankankankankan/openwrt-daede) |
 | ImmortalWrt 固件编译 | `ImmortalWrt-Actions` | [kankankankankankan/ImmortalWrt-Actions](https://github.com/kankankankankankan/ImmortalWrt-Actions) |
+| 25.12 固件编译副本 | `ImmortalWrt-Actions-25.12` | [kankankankankankan/ImmortalWrt-Actions](https://github.com/kankankankankankan/ImmortalWrt-Actions) |
 | 固件使用的软件源 | `ImmortalWrt-Packages` | [kankankankankankan/ImmortalWrt-Packages](https://github.com/kankankankankankan/ImmortalWrt-Packages) |
 | 规则同步工具 | `cloud-rules-sync` | [kankankankankankan/cloud-rules-sync](https://github.com/kankankankankankan/cloud-rules-sync) |
 | 会员配置中心源码 | `Config-center-master` | [kankankankankankan/ip](https://github.com/kankankankankankan/ip) |
