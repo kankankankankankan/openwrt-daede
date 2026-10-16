@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """2026-09-11: isolated router transaction tests, with no network or host service changes."""
-import json, os, pathlib, shutil, subprocess, tempfile, unittest
+import json, os, pathlib, shutil, subprocess, tempfile, unittest, time
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / 'luci-app-daede/root/usr/share/luci-app-daede/member-sync.sh'
 
@@ -38,11 +38,13 @@ elif op=='select':
  if not isinstance(d,dict) or not isinstance(d.get(args[0]),(dict,list)): sys.exit(1)
  print(json.dumps(d[args[0]]))
 elif op=='get':
- v=d.get(args[0],''); print(int(v) if isinstance(v,bool) else v)
+ v=(d[int(args[0])-1] if isinstance(d,list) else d.get(args[0],'')); print(int(v) if isinstance(v,bool) else v)
 else:
- if args[0] not in d: print(''); sys.exit()
- v=d.get(args[0]); print('object' if isinstance(v,dict) else 'array' if isinstance(v,list) else 'null' if v is None else 'boolean' if isinstance(v,bool) else 'int' if isinstance(v,int) else 'double' if isinstance(v,float) else 'string')
+ if not isinstance(d,list) and args[0] not in d: print(''); sys.exit()
+ v=d[int(args[0])-1] if isinstance(d,list) else d.get(args[0]); print('object' if isinstance(v,dict) else 'array' if isinstance(v,list) else 'null' if v is None else 'boolean' if isinstance(v,bool) else 'int' if isinstance(v,int) else 'double' if isinstance(v,float) else 'string')
 ''')
+        self.write('bin/flock', "#!/usr/bin/env python3\nimport fcntl,sys\ntry: fcntl.flock(int(sys.argv[-1]), fcntl.LOCK_EX | fcntl.LOCK_NB)\nexcept BlockingIOError: sys.exit(1)\n", executable=True)
+        self.write('bin/setsid', "#!/usr/bin/env python3\nimport os,sys\nos.setsid(); os.execvp(sys.argv[1], sys.argv[1:])\n", executable=True)
         self.write('bin/uci', '''#!/usr/bin/env python3
 import sys,json,os,pathlib
 p=pathlib.Path(os.environ['DAEDE_MEMBER_TEST_ROOT'])/'store.json'; d=json.loads(p.read_text()); a=[x for x in sys.argv[1:] if x!='-q']; op=a[0]
@@ -57,7 +59,7 @@ p.write_text(json.dumps(d))
 ''', executable=True)
         self.write('bin/curl', '''#!/usr/bin/env python3
 import os,pathlib,sys,json,re
-r=pathlib.Path(os.environ['DAEDE_MEMBER_TEST_ROOT']); conf=pathlib.Path(sys.argv[2]).read_text(); opts=dict(re.findall(r'^(\\S+) = "(.*)"$', conf,re.M)); url=opts['url']; out=pathlib.Path(opts['output']); status='200'
+r=pathlib.Path(os.environ['DAEDE_MEMBER_TEST_ROOT']); conf=pathlib.Path(sys.argv[2]).read_text(); opts=dict(re.findall(r'^(\\S+) = "(.*)"$', conf,re.M)); url=opts['url']; out=pathlib.Path(opts['output']); status=(r/'http-status').read_text().strip() if (r/'http-status').exists() else '200'
 if (r/'network-fail').exists(): sys.exit(7)
 if url.endswith('/api/login'):
  pathlib.Path(opts['cookie-jar']).write_text('private-session'); result={'ok':True}
@@ -139,7 +141,7 @@ printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
             state = self.run_action('status')
             self.assertNotIn('quota', state)
             self.assertEqual(state.get('quota_status'), expected)
-            self.assertFalse(state['logged_in'])
+            self.assertEqual(state['logged_in'], state.get('quota_status') != 'unauthenticated')
         self.write('network-fail','1')
         state = self.run_action('status')
         self.assertNotIn('quota', state)
@@ -153,7 +155,7 @@ printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
             state = self.run_action('status')
             self.assertNotIn('quota', state)
             self.assertEqual(state.get('quota_status'), 'unavailable')
-            self.assertFalse(state['logged_in'])
+            self.assertEqual(state['logged_in'], state.get('quota_status') != 'unauthenticated')
 
     def test_quota_missing_null_invalid_and_zero_remain_distinct(self):
         self.login()
@@ -230,9 +232,61 @@ printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
         self.assertEqual(json.loads((self.root/'store.json').read_text())['dae.config.config_file'],'/etc/dae/custom.dae')
         self.assertTrue((self.root/'running').exists())
     def test_lock_consumes_staged_request(self):
-        (self.root/'tmp/daede-member.lock').mkdir()
+        import fcntl
+        lock = open(self.root/'tmp/daede-member-operation.lock', 'w')
+        self.addCleanup(lock.close)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.assertFalse(self.login()['ok'])
         self.assertFalse(list((self.root/'tmp').glob('daede-member-request.*')))
+    def test_status_works_while_mutation_locked(self):
+        self.assertTrue(self.login()['ok'])
+        import fcntl
+        with open(self.root/'tmp/daede-member-operation.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertTrue(self.run_action('status')['logged_in'])
+            self.assertFalse(self.run_action('sync')['ok'])
+
+    def test_orphan_legacy_lock_does_not_block_new_operations(self):
+        (self.root/'tmp/daede-member.lock').mkdir()
+        self.assertTrue(self.login()['ok'])
+
+    def test_background_sync_reports_final_result(self):
+        self.assertTrue(self.login()['ok'])
+        token = 'b' * 32
+        self.assertEqual(self.run_action('start', token, 'sync')['job'], token)
+        for _ in range(100):
+            result = self.run_action('result', token)
+            if not result.get('pending'): break
+            time.sleep(.1)
+        self.assertTrue(result.get('ok'), result)
+        self.assertIn('last_sync', result)
+        self.assertFalse((self.root/f'tmp/daede-member/job.{token}').exists())
+
+    def test_http_failures_are_distinguished_without_replacing_config(self):
+        self.assertTrue(self.login()['ok'])
+        self.write('etc/dae/config.dae', 'previous config')
+        for code, expected in [('401', '登录已过期'), ('403', 'HTTP 403'), ('554', 'HTTP 554')]:
+            self.write('http-status', code)
+            result = self.run_action('sync')
+            self.assertFalse(result['ok'])
+            self.assertIn(expected, result['error'])
+            self.assertEqual((self.root/'etc/dae/config.dae').read_text(), 'previous config')
+
+    def test_known_node_warning_explains_skipped_protocols(self):
+        self.assertTrue(self.login()['ok'])
+        message = '已跳过 7 个不支持协议节点：vmess, anytls'
+        self.write('api-convert.json', json.dumps({'job': {'id': 'test-job', 'warnings': [message]}}))
+        self.assertEqual(self.run_action('sync')['warning'], '订阅转换提示：' + message)
+
+    def test_unknown_warning_has_no_nonexistent_report_instruction(self):
+        self.assertTrue(self.login()['ok'])
+        self.write('api-convert.json', json.dumps({'job': {'id': 'test-job', 'warnings': ['unrecognized-private-detail']}}))
+        result = self.run_action('sync')
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['running'])
+        self.assertNotIn('报告', result['warning'])
+        self.assertNotIn('unrecognized-private-detail', result['warning'])
+
     def test_placeholder_and_backend_guard(self):
         self.login(); self.write('bad-placeholder','1')
         self.assertFalse(self.run_action('sync')['ok'])

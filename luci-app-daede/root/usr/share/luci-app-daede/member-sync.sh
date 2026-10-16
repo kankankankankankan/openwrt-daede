@@ -4,7 +4,7 @@ umask 077
 # The root override is exclusively for isolated tests; production always leaves it unset.
 ROOT="${DAEDE_MEMBER_TEST_ROOT:-}"
 STATE="$ROOT/tmp/daede-member"
-LOCK="$ROOT/tmp/daede-member.lock"
+LOCK="$ROOT/tmp/daede-member-operation.lock"
 REQUEST=""
 case "$1" in
  login)
@@ -15,13 +15,48 @@ esac
 . "$ROOT/usr/share/libubox/jshn.sh"
 error() { json_init; json_add_boolean ok 0; json_add_string error "$1"; json_dump; exit 1; }
 success() { json_init; json_add_boolean ok 1; json_dump; }
-mkdir "$LOCK" 2>/dev/null || { [ -z "$REQUEST" ] || rm -f "$REQUEST"; error 'Another member operation is running'; }
-WORK="$(mktemp -d "$ROOT/tmp/daede-member-work.XXXXXX")" || { rmdir "$LOCK"; error 'Cannot create temporary directory'; }
-cleanup() { [ -z "$REQUEST" ] || rm -f "$REQUEST"; rm -rf "$WORK"; rmdir "$LOCK" 2>/dev/null; }
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
+# 2026-10-16: Long operations outlive LuCI's 30-second RPC budget.
+valid_id() { case "$1" in ''|*[!0-9a-f]*) return 1;; esac; [ "${#1}" = 32 ]; }
 mkdir -p "$STATE" || error 'Cannot create session directory'
 chmod 700 "$STATE"
+case "$1" in
+ start)
+  valid_id "$2" || error 'Invalid job identifier'
+  case "$3" in login) valid_id "$4" || error 'Invalid request identifier';; sync|logout) ;; *) error 'Invalid background action';; esac
+  command -v setsid >/dev/null 2>&1 || error '缺少 setsid，请安装固件的 BusyBox 标准组件'
+  JOBDIR="$STATE/job.$2"
+  mkdir "$JOBDIR" 2>/dev/null || error '任务编号已存在，请刷新后重试'
+  setsid /bin/sh "$0" _run "$2" "$3" "$4" </dev/null >"$JOBDIR/worker.log" 2>&1 &
+  printf '%s' "$!" > "$JOBDIR/pid"
+  json_init; json_add_boolean ok 1; json_add_string job "$2"; json_dump; exit 0;;
+ _run)
+  valid_id "$2" || exit 1
+  JOBDIR="$STATE/job.$2"
+  [ -d "$JOBDIR" ] || exit 1
+  case "$3" in login|sync|logout) ;; *) exit 1;; esac
+  /bin/sh "$0" "$3" "$4" > "$JOBDIR/result.tmp"
+  mv "$JOBDIR/result.tmp" "$JOBDIR/result"
+  exit 0;;
+ result)
+  valid_id "$2" || error 'Invalid job identifier'
+  JOBDIR="$STATE/job.$2"
+  [ -d "$JOBDIR" ] || error '任务记录已失效，请刷新状态后重试'
+  if [ -s "$JOBDIR/result" ]; then cat "$JOBDIR/result"; rm -rf "$JOBDIR"; exit 0; fi
+  pid="$(cat "$JOBDIR/pid" 2>/dev/null)"
+  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$JOBDIR"; error '操作已中断，请刷新状态后重试'; fi
+  json_init; json_add_boolean ok 1; json_add_boolean pending 1; json_dump; exit 0;;
+esac
+# Kernel-held locks are released even if a worker is killed. Status never locks writers.
+if [ "$1" != status ]; then
+ exec 9>"$LOCK"
+ flock -n 9 || { [ -z "$REQUEST" ] || rm -f "$REQUEST"; error '另一项会员操作正在进行，请稍后重试'; }
+fi
+WORK="$(mktemp -d "$ROOT/tmp/daede-member-work.XXXXXX")" || error 'Cannot create temporary directory'
+cleanup() { [ -z "$REQUEST" ] || rm -f "$REQUEST"; rm -rf "$WORK"; }
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+REQUEST_TIMEOUT=120
+[ "$1" != status ] || REQUEST_TIMEOUT=8
 get() { uci -q get "$1"; }
 origin_valid() {
  case "$1" in https://*) ;; *) return 1;; esac
@@ -40,7 +75,7 @@ silent
 show-error
 proto = "=https"
 connect-timeout = 15
-max-time = 120
+max-time = $REQUEST_TIMEOUT
 max-filesize = $limit
 user-agent = "daede-member-sync/1"
 request = "$method"
@@ -51,9 +86,27 @@ cookie = "$jar"
 cookie-jar = "$jar"
 CURL
  [ -z "$body" ] || printf 'header = "Content-Type: application/json"\ndata-binary = "@%s"\n' "$body" >> "$WORK/curl.conf"
- HTTP="$(ulimit -f "$((limit / 1024))"; curl --config "$WORK/curl.conf" 2> "$WORK/curl-error")" || return 1
+ CURL_CODE=0
+ HTTP="$(ulimit -f "$((limit / 1024))"; curl --config "$WORK/curl.conf" 2> "$WORK/curl-error")" || { CURL_CODE=$?; return 1; }
  [ -f "$WORK/response" ] && [ "$(wc -c < "$WORK/response")" -le "$limit" ] || return 1
  case "$HTTP" in 2??) return 0;; *) return 1;; esac
+}
+# Report protocol/transport facts; do not echo HTML, cookies, or subscription secrets.
+request_error() {
+ local label="$1"
+ case "$CURL_CODE" in
+  6) error "${label}：域名解析失败，请检查路由器 DNS";;
+  7) error "${label}：无法连接会员服务器";;
+  28) error "${label}：请求超时，原配置保持不变，请稍后重试";;
+  35|60) error "${label}：HTTPS 连接或证书校验失败";;
+ esac
+ case "$HTTP" in
+  401) error "${label}：登录已过期，请重新登录";;
+  403) error "${label}：服务器拒绝访问（HTTP 403），请检查会员权限或网站防护";;
+  429) error "${label}：请求过于频繁，请稍后重试";;
+  5??) error "${label}：服务器或网关异常（HTTP ${HTTP}），请稍后重试";;
+ esac
+ error "${label}：请求失败（HTTP ${HTTP:-000}，连接错误 ${CURL_CODE:-0}）"
 }
 load_session() {
  [ -s "$STATE/origin" ] && [ -s "$STATE/cookie" ] || return 1
@@ -63,7 +116,7 @@ load_session() {
 check_session() {
  QUOTA_STATUS=unavailable
  cp "$STATE/cookie" "$WORK/cookie" || return 1
- request GET /api/state "$WORK/cookie" '' 1048576 || return 1
+ request GET /api/state "$WORK/cookie" '' 1048576 || { [ "$HTTP" != 401 ] || QUOTA_STATUS=unauthenticated; return 1; }
  json_load "$(cat "$WORK/response")" || return 1
  json_get_type response_type ok; json_get_var response_ok ok
  [ "$response_type" = boolean ] && [ "$response_ok" = 1 ] || return 1
@@ -114,12 +167,15 @@ case "$1" in
  status)
   logged=0; QUOTA_STATUS=unauthenticated; note="$(get daede.member.warning)"
   if load_session; then
-   if check_session; then logged=1; read_quota; else note='Session could not be verified. Log in again if synchronization fails.'; fi
+   if check_session; then logged=1; read_quota; else
+    if [ "$QUOTA_STATUS" = unauthenticated ]; then note='登录已过期，请重新登录';
+    else logged=1; note='登录凭据已保留，暂时无法核验会员状态，请稍后重试'; fi
+   fi
   fi
   URL="$(get daede.member.url)"
   json_init; json_add_boolean ok 1; json_add_boolean logged_in "$logged"
   json_add_string quota_status "$QUOTA_STATUS"
-  [ "$logged" != 1 ] || add_quota
+  [ "$QUOTA_STATUS" != available ] || add_quota
   json_add_string url "$URL"; json_add_string lan_interface "$(get daede.member.lan_interface)"
   json_add_string mode "$(get daede.member.mode)"; json_add_string last_sync "$(get daede.member.last_sync)"; json_add_boolean auto_sync "$(get daede.member.auto_sync)"; json_add_string sync_interval "$(get daede.member.sync_interval)"
   json_add_string warning "$note"; running=0; service running && running=1; json_add_boolean running "$running"; json_dump;;
@@ -133,7 +189,7 @@ case "$1" in
   [ -n "$USERNAME" ] && [ -n "$PASSWORD" ] || error 'Account and password are required'
   json_init; json_add_string username "$USERNAME"; json_add_string password "$PASSWORD"; json_dump > "$WORK/body"
   unset PASSWORD; rm -f "$WORK/login-request"
-  request POST /api/login "$WORK/cookie" "$WORK/body" 1048576 || error 'Login failed. Check credentials, server availability or required CAPTCHA in the member website.'
+  request POST /api/login "$WORK/cookie" "$WORK/body" 1048576 || request_error '会员登录失败'
   rm -f "$WORK/body"
   [ -s "$WORK/cookie" ] || error 'Server did not establish a session'
   request GET /api/state "$WORK/cookie" '' 1048576 || error 'Cannot verify the new session'
@@ -163,21 +219,31 @@ case "$1" in
   load_session || error 'Please log in first'
   cp "$STATE/cookie" "$WORK/cookie" || error 'Cannot read session'
   printf '%s' '{"platform":"dae","forceRefresh":true}' > "$WORK/body"
-  request POST /api/convert "$WORK/cookie" "$WORK/body" 1048576 || error 'Configuration generation failed. Check your session and membership in the member website.'
+  request POST /api/convert "$WORK/cookie" "$WORK/body" 1048576 || request_error '云端配置生成失败'
   json_load "$(cat "$WORK/response")" || error 'Invalid generation response'
   json_select job || error 'Generation response has no job'
   json_get_var JOB id
   case "$JOB" in ''|*[!a-zA-Z0-9_-]*) error 'Invalid job identifier';; esac
   WARNING=''; json_get_var STALE staleSnapshot; json_get_type wt warnings
   if [ "$STALE" = 1 ] || [ "$STALE" = true ]; then
-   WARNING='Upstream unavailable: this configuration uses a saved subscription snapshot. Review the member website.'
+   WARNING='云端暂时无法获取最新订阅，本次使用已保存的订阅快照。请稍后再次同步。'
   elif [ "$wt" = array ]; then
    json_get_keys warning_keys warnings
    if [ -n "$warning_keys" ]; then
-    WARNING='规则适配报告已生成，请先在会员配置中心查看后再使用。'
+    WARNING='云端返回兼容提示，但未提供可展示的详细原因；同步完成后请测试节点连通性。'
+    json_select warnings
+    for warning_key in $warning_keys; do
+     json_get_type warning_type "$warning_key"
+     if [ "$warning_type" = string ]; then
+      json_get_var warning_text "$warning_key"
+      # Only expose the server's known node compatibility summary.
+      case "$warning_text" in '已跳过 '*个不支持协议节点*) WARNING="订阅转换提示：$(printf '%s' "$warning_text" | head -c 300)";; esac
+     fi
+     break
+    done
    fi
   fi
-  request GET "/api/dae/$JOB/config.dae" "$WORK/cookie" '' 8388608 || error 'Configuration download failed; current configuration was kept'
+  request GET "/api/dae/$JOB/config.dae" "$WORK/cookie" '' 8388608 || request_error '云端配置下载失败'
   [ -s "$WORK/response" ] || error 'Downloaded configuration is empty'
   COUNT="$(awk '{n+=gsub(/__DAE_LAN_INTERFACE__/, "&")} END {print n+0}' "$WORK/response")"
   [ "$COUNT" = 1 ] || error 'Configuration must contain exactly one LAN interface placeholder'
@@ -221,6 +287,6 @@ case "$1" in
   [ "$HAD" != 1 ] || cp "$WORK/previous" "$ROOT/etc/dae/config.dae.member-backup"
   NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   uci set daede.member=member && uci set daede.member.mode=cloud && uci set "daede.member.last_sync=$NOW" && uci set "daede.member.warning=$WARNING" && uci commit daede || error 'Configuration is running but member status could not be saved'
-  json_init; json_add_boolean ok 1; json_add_string last_sync "$NOW"; json_add_string warning "$WARNING"; json_dump;;
+  json_init; json_add_boolean ok 1; json_add_string last_sync "$NOW"; json_add_string warning "$WARNING"; json_add_boolean running 1; json_dump;;
  *) error 'Unknown member operation';;
 esac

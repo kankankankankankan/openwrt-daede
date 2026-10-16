@@ -41,6 +41,8 @@
 		"write": {
 			"file": {
 				"/tmp/daede-member-request.*.json": [ "write" ],
+				"/usr/share/luci-app-daede/member-sync.sh start *": [ "exec" ],
+				"/usr/share/luci-app-daede/member-sync.sh result *": [ "exec" ],
 				"/usr/share/luci-app-daede/member-sync.sh login *": [ "exec" ],
 				"/usr/share/luci-app-daede/member-sync.sh sync": [ "exec" ],
 				"/usr/share/luci-app-daede/member-sync.sh logout": [ "exec" ],

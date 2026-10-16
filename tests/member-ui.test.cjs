@@ -144,9 +144,11 @@ test('login stages credentials privately, passes only random identifier, removes
   assert.equal(JSON.parse(staged.body).password, 'test secret $()\n"');
   assert.match(staged.path, /^\/tmp\/daede-member-request\.[a-f0-9]{32}\.json$/);
   const request = s.calls.find(c => c.command);
-  assert.equal(request.args[0], 'login');
+  assert.equal(request.args[0], 'start');
+  assert.equal(request.args[2], 'login');
+  assert.match(request.args[3], /^[a-f0-9]{32}$/);
   assert.match(request.args[1], /^[a-f0-9]{32}$/);
-  assert.equal(request.args.length, 2);
+  assert.equal(request.args.length, 4);
   assert.ok(s.calls.some(c => c.remove === staged.path));
   assert.equal(inputs[2].value, '');
 });
@@ -179,7 +181,7 @@ test('successful login with failed status refresh does not show stale quota or r
   assert.match(textOf(card.replacement), /登录成功/);
   assert.doesNotMatch(textOf(card.replacement), /OLD|已用 50 B/);
   assert.ok(!s.calls.some(c => c.reload));
-  assert.equal(s.calls.filter(c => c.command && c.args[0] === 'login').length, 1);
+  assert.equal(s.calls.filter(c => c.command && c.args[0] === 'start' && c.args[2] === 'login').length, 1);
 });
 
 test('logout refreshes only the member card and removes the previous profile', async () => {
@@ -225,11 +227,11 @@ test('applying cloud config emits state change for immediate page simplification
   assert.equal(emitted.mode, 'cloud');
 });
 test('successful clean sync updates the rule status and cloud badge immediately', async () => {
-  const s = setup({ ok: true, warning: '', last_sync: '2026-09-12T10:00:00Z' });
+  const s = setup({ ok: true, warning: '', running: true, last_sync: '2026-09-12T10:00:00Z' });
   s.api.render({ memberState: { logged_in: true, mode: 'local', warning: 'old warning', last_sync: '2026-09-11T00:00:00Z' }, netDevs: ['br-lan'] });
   s.elements.find(e => e.textContent === '应用云端配置').listeners.click();
   await new Promise(resolve => setImmediate(resolve));
-  assert.match(s.elements.find(e => e.attrs.class === 'dd-member-state').textContent, /规则状态：已加载/);
+  assert.match(s.elements.find(e => e.attrs.class === 'dd-member-state').textContent, /配置状态：已加载，运行中/);
   assert.ok(s.elements.some(e => e.textContent === '云端配置'));
 });
 
@@ -279,4 +281,39 @@ test('failed sync period save uses an error page notification', async () => {
   assert.equal(s.notifications.length, 1);
   assert.equal(s.notifications[0].level, 'error');
   assert.equal(s.notifications[0].content.textContent, '保存同步周期失败');
+});
+
+
+test('pending sync polls result without resubmitting and preserves warning with success', async () => {
+  let results = 0;
+  const s = setup(args => args[0] === 'start' ? { ok: true } :
+    ++results === 1 ? { ok: true, pending: true } : { ok: true, warning: '已跳过 7 个不支持协议节点：vmess, anytls' });
+  s.api.render({ memberState: { logged_in: true }, netDevs: ['br-lan'] });
+  s.elements.find(e => e.textContent === '应用云端配置').listeners.click();
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.equal(s.calls.filter(c => c.args && c.args[0] === 'start').length, 1);
+  assert.equal(results, 2);
+  assert.match(s.elements.find(e => e.attrs.role === 'status').textContent, /同步成功.*已跳过 7/);
+});
+
+test('temporary verification failure retains account view and labels uncertainty', () => {
+  const s = setup();
+  s.api.render({ memberState: { logged_in: true, quota_status: 'unavailable' }, netDevs: ['br-lan'] });
+  assert.match(s.elements.find(e => e.attrs.class === 'dd-member-state').textContent, /状态待核验/);
+  assert.equal(s.elements.find(e => e.attrs.class === 'dd-member-fields').attrs.style, 'display:none');
+});
+
+for (const warning of ['', '订阅转换提示：已跳过 1 个节点', '云端暂时无法获取最新订阅，本次使用已保存的订阅快照。']) {
+  test('subscription warnings do not change running config state: ' + warning, () => {
+    const s = setup();
+    const card = s.api.render({ memberState: { logged_in: true, mode: 'cloud', running: true, last_sync: '2026-10-17T00:00:00Z', warning }, netDevs: ['br-lan'] });
+    assert.match(textOf(card), /配置状态：已加载，运行中/);
+    assert.match(textOf(card), warning ? /订阅状态：有提示/ : /订阅状态：最近同步无警告/);
+    assert.doesNotMatch(textOf(card), /规则状态|需检查|已加载（有警告）/);
+  });
+}
+test('stopped daemon is not reported as loaded from a past sync', () => {
+  const s = setup();
+  const card = s.api.render({ memberState: { logged_in: true, mode: 'cloud', running: false, last_sync: '2026-10-17T00:00:00Z' }, netDevs: ['br-lan'] });
+  assert.match(textOf(card), /配置状态：已同步，服务未运行/);
 });

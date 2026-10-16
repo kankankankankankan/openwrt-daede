@@ -7,7 +7,7 @@
 // 2026-09-11: Keep member credentials in a private one-use request, never in argv or UCI.
 const HELPER = '/usr/share/luci-app-daede/member-sync.sh';
 
-function invoke(action, args) {
+function callHelper(action, args) {
 	return fs.exec(HELPER, [action].concat(args || [])).then(function(result) {
 		let body;
 		try { body = JSON.parse(result.stdout || '{}'); }
@@ -16,6 +16,23 @@ function invoke(action, args) {
 			throw new Error(body.error || '操作失败，请检查服务地址和路由器网络');
 		return body;
 	});
+}
+
+// 2026-10-16: Poll small RPCs while the router completes long cloud requests.
+function invoke(action, args) {
+ if (!['login', 'sync', 'logout'].includes(action)) return callHelper(action, args);
+ const bytes = new Uint8Array(16);
+ window.crypto.getRandomValues(bytes);
+ const id = Array.from(bytes, n => ('0' + n.toString(16)).slice(-2)).join('');
+ const deadline = Date.now() + 300000;
+ function waitResult() {
+  return callHelper('result', [id]).then(function(result) {
+   if (!result.pending) return result;
+   if (Date.now() >= deadline) throw new Error('任务仍在处理，请稍后刷新查看结果，勿重复提交');
+   return new Promise(resolve => setTimeout(resolve, 1000)).then(waitResult);
+  });
+ }
+ return callHelper('start', [id, action].concat(args || [])).then(waitResult);
 }
 
 function getStatus() { return invoke('status'); }
@@ -103,6 +120,8 @@ function renderUsage(ctx) {
 
 function render(ctx) {
 	const state = ctx.memberState || {};
+	if (state.warning === 'Upstream unavailable: this configuration uses a saved subscription snapshot. Review the member website.')
+		state.warning = '云端暂时无法获取最新订阅，本次使用已保存的订阅快照。请稍后再次同步。';
 	let card;
 	const modeBadge = E('span', { 'class': 'dd-member-mode' + (state.mode === 'cloud' ? ' dd-member-mode-cloud' : '') });
 	function updateMode() {
@@ -186,10 +205,13 @@ function render(ctx) {
 			else if (elapsed < 24 * 60 * 60 * 1000) recent = Math.floor(elapsed / 3600000) + ' 小时前';
 			else recent = new Date(syncTime).toLocaleString();
 		}
-		const rules = !state.last_sync ? '未同步' : state.warning ? '需检查' : '已加载';
-		return (state.logged_in ? '已连接' : '未登录') + ' · ' +
+		const connection = state.quota_status === 'unavailable' ? '状态待核验' : '已连接';
+		const config = !state.last_sync ? '未同步' : state.mode !== 'cloud' ? '本地模式'
+			: state.running === true ? '已加载，运行中' : state.running === false ? '已同步，服务未运行' : '已同步，运行状态待核验';
+		const subscription = !state.last_sync ? '未同步' : state.warning ? '有提示（见下方）' : '最近同步无警告';
+		return (state.logged_in ? connection : '未登录') + ' · ' +
 			(recent ? '最近同步 ' + recent + ' · ' : '') +
-			'规则状态：' + rules;
+			'配置状态：' + config + ' · 订阅状态：' + subscription;
 	}
 	const stateLine = E('p', { 'class': 'dd-member-state' }, stateText());
 	const syncHours = E('input', {
@@ -234,15 +256,18 @@ function render(ctx) {
 	}, !state.logged_in);
 	const sync = action('应用云端配置', function() {
 		return invoke('sync').then(function(result) {
+			const modeChanged = state.mode !== 'cloud';
 			state.logged_in = true;
 			state.mode = 'cloud';
 			updateMode();
 			state.last_sync = result.last_sync || new Date().toISOString();
 			state.warning = result.warning || '';
+			state.running = result.running === true;
 			stateLine.textContent = stateText();
 			local.hidden = false;
-			if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: state }));
-			feedback.textContent = state.warning || '同步成功，dae 已启用并开始运行。';
+			if (modeChanged && typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: state }));
+			feedback.textContent = '同步成功，dae 已启用。' + (state.warning ? ' ' + state.warning : '');
+			ui.addNotification(null, E('p', {}, feedback.textContent), 'info');
 		});
 	}, true);
 	sync.disabled = !state.logged_in || !!ctx.memberError;
