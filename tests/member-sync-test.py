@@ -81,6 +81,7 @@ case "$1" in
  enable) touch "$r/enabled";;
  disable) rm -f "$r/enabled";;
  stop) rm -f "$r/running" "$r/var/log/dae/dae.log";;
+ hot_reload) touch "$r/hot-reloaded";;
  restart) if [ -f "$r/restart-fail" ]; then rm "$r/restart-fail"; exit 1; fi; touch "$r/running";;
 esac
 ''', executable=True)
@@ -106,6 +107,61 @@ printf '%s\\n' "$1" >> "$DAEDE_MEMBER_TEST_ROOT/cron-calls"
         nonce='a'*32
         self.write(f'tmp/daede-member-request.{nonce}.json',json.dumps(dict(url=url,username='tester',password=password,lan_interface='br-lan')))
         return self.run_action('login',nonce)
+    def test_scheduled_sync_never_starts_stopped_service(self):
+        self.login()
+        store=json.loads((self.root/'store.json').read_text())
+        store.update({'daede.member.auto_sync':'1','daede.member.mode':'cloud'})
+        self.write('store.json',json.dumps(store))
+        self.assertTrue(self.run_action('scheduled')['ok'])
+        self.assertFalse((self.root/'running').exists())
+        self.assertFalse((self.root/'etc/dae/config.dae').exists())
+
+    def test_unchanged_config_refreshes_without_restart_and_keeps_geo_preferences(self):
+        self.login()
+        store=json.loads((self.root/'store.json').read_text())
+        store.update({'daede.config.geoip_url':'https://example.com/ip.dat',
+                      'daede.config.geo_auto':'0','daede.config.geo_auto_freq':'weekly'})
+        self.write('store.json',json.dumps(store))
+        self.assertTrue(self.run_action('sync')['ok'])
+        self.assertTrue(self.run_action('sync')['ok'])
+        self.assertTrue((self.root/'hot-reloaded').exists())
+        store=json.loads((self.root/'store.json').read_text())
+        self.assertEqual(store['daede.config.geoip_url'],'https://example.com/ip.dat')
+        self.assertEqual(store['daede.config.geo_auto'],'0')
+        cron=self.root/'etc/crontabs/root'
+        self.assertTrue(not cron.exists() or 'update-geo.sh' not in cron.read_text())
+
+    def test_scheduled_respects_due_time_and_local_mode(self):
+        self.login(); self.write('running','1')
+        store=json.loads((self.root/'store.json').read_text())
+        store.update({'daede.member.auto_sync':'1','daede.member.mode':'cloud',
+                      'daede.member.next_sync':str(int(time.time())+18000)})
+        self.write('store.json',json.dumps(store))
+        self.assertTrue(self.run_action('scheduled')['ok'])
+        self.assertFalse((self.root/'etc/dae/config.dae').exists())
+        store.update({'daede.member.mode':'local','daede.member.next_sync':'0'})
+        self.write('store.json',json.dumps(store))
+        self.assertTrue(self.run_action('scheduled')['ok'])
+        self.assertFalse((self.root/'etc/dae/config.dae').exists())
+
+    def test_schedule_five_hours_and_migrates_old_cron(self):
+        self.login()
+        cron=SCRIPT.with_name('member-sync-cron.sh').read_text()
+        for path in ['/etc/crontabs','/etc/init.d/cron']:
+            cron=cron.replace(path,str(self.root)+path)
+        self.write('usr/share/luci-app-daede/member-sync-cron.sh',cron,executable=True)
+        (self.root/'etc/crontabs').mkdir(exist_ok=True)
+        self.write('etc/crontabs/root','0 */5 * * * /usr/share/luci-app-daede/member-sync.sh sync >/dev/null 2>&1\n')
+        before=int(time.time())
+        result=self.run_action('schedule','5')
+        self.assertTrue(result['ok'])
+        self.assertGreaterEqual(int(result['next_sync']),before+18000)
+        self.assertLessEqual(int(result['next_sync']),int(time.time())+18000)
+        crontab=(self.root/'etc/crontabs/root').read_text()
+        self.assertIn('* * * * * /usr/share/luci-app-daede/member-sync.sh scheduled',crontab)
+        self.assertNotIn('member-sync.sh sync ',crontab)
+        self.assertTrue(self.run_action('schedule','08')['ok'])
+
     def test_login_sync_logout(self):
         self.assertTrue(self.login()['ok'])
         self.assertTrue(self.run_action('status')['logged_in'])

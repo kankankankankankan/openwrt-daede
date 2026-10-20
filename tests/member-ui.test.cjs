@@ -317,3 +317,21 @@ test('stopped daemon is not reported as loaded from a past sync', () => {
   const card = s.api.render({ memberState: { logged_in: true, mode: 'cloud', running: false, last_sync: '2026-10-17T00:00:00Z' }, netDevs: ['br-lan'] });
   assert.match(textOf(card), /配置状态：已同步，服务未运行/);
 });
+
+test('schedule shows paused state and only enables saving after an edit', () => {
+  const s = setup();
+  const card=s.api.render({memberState:{logged_in:true,mode:'cloud',running:false,auto_sync:true,sync_interval:'6'}});
+  assert.match(textOf(card),/服务已关闭，自动同步暂停/);
+  const button=s.elements.find(e=>e.textContent==='保存同步周期');
+  const input=s.elements.find(e=>e.attrs['aria-label']==='同步间隔（小时）');
+  assert.equal(button.disabled,true);
+  input.value='5';input.listeners.input();assert.equal(button.disabled,false);
+  input.value='6';input.listeners.input();assert.equal(button.disabled,true);
+});
+
+test('last sync failure is visible beside the preserved successful state', () => {
+  const s=setup();
+  const card=s.api.render({memberState:{logged_in:true,last_sync:new Date().toISOString(),last_error:'云端配置下载失败',running:true,mode:'cloud'}});
+  assert.match(textOf(card),/云端配置下载失败/);
+  assert.match(textOf(card),/最近同步/);
+});

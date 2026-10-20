@@ -117,4 +117,7 @@ if [ -f /etc/config/dae ]; then
 	uci -q commit dae
 fi
 
+# 2026-10-20: Also migrate preserved cron entries on the first firmware boot.
+/usr/share/luci-app-daede/member-sync-cron.sh enable >/dev/null 2>&1 || true
+
 exit 0

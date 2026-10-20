@@ -13,7 +13,11 @@ case "$1" in
   REQUEST="$ROOT/tmp/daede-member-request.$2.json";;
 esac
 . "$ROOT/usr/share/libubox/jshn.sh"
-error() { json_init; json_add_boolean ok 0; json_add_string error "$1"; json_dump; exit 1; }
+error() {
+ if [ "${SYNC_TRACK:-0}" = 1 ]; then
+  printf '%s' "$1" > "$STATE/last-error.tmp"; mv "$STATE/last-error.tmp" "$STATE/last-error"
+ fi
+ json_init; json_add_boolean ok 0; json_add_string error "$1"; json_dump; exit 1; }
 success() { json_init; json_add_boolean ok 1; json_dump; }
 # 2026-10-16: Long operations outlive LuCI's 30-second RPC budget.
 valid_id() { case "$1" in ''|*[!0-9a-f]*) return 1;; esac; [ "${#1}" = 32 ]; }
@@ -34,7 +38,7 @@ case "$1" in
   JOBDIR="$STATE/job.$2"
   [ -d "$JOBDIR" ] || exit 1
   case "$3" in login|sync|logout) ;; *) exit 1;; esac
-  /bin/sh "$0" "$3" "$4" > "$JOBDIR/result.tmp"
+  DAEDE_MEMBER_JOBDIR="$JOBDIR" /bin/sh "$0" "$3" "$4" > "$JOBDIR/result.tmp"
   mv "$JOBDIR/result.tmp" "$JOBDIR/result"
   exit 0;;
  result)
@@ -44,7 +48,7 @@ case "$1" in
   if [ -s "$JOBDIR/result" ]; then cat "$JOBDIR/result"; rm -rf "$JOBDIR"; exit 0; fi
   pid="$(cat "$JOBDIR/pid" 2>/dev/null)"
   if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$JOBDIR"; error '操作已中断，请刷新状态后重试'; fi
-  json_init; json_add_boolean ok 1; json_add_boolean pending 1; json_dump; exit 0;;
+  json_init; json_add_boolean ok 1; json_add_boolean pending 1; json_add_string phase "$(cat "$JOBDIR/phase" 2>/dev/null)"; json_dump; exit 0;;
 esac
 # Kernel-held locks are released even if a worker is killed. Status never locks writers.
 if [ "$1" != status ]; then
@@ -58,6 +62,25 @@ trap 'exit 1' HUP INT TERM
 REQUEST_TIMEOUT=120
 [ "$1" != status ] || REQUEST_TIMEOUT=8
 get() { uci -q get "$1"; }
+# 2026-10-20: Persist the due time, expose actual phases, keep failures visible.
+phase() { [ -z "${DAEDE_MEMBER_JOBDIR:-}" ] || printf '%s' "$1" > "$DAEDE_MEMBER_JOBDIR/phase"; }
+interval_seconds() {
+ HOURS="$(get daede.member.sync_interval)"
+ case "$HOURS" in ''|*[!0-9]*) HOURS=6;; esac
+ [ "$HOURS" -ge 1 ] && [ "$HOURS" -le 24 ] || HOURS=6
+ HOURS="$(expr "$HOURS" + 0)"
+ INTERVAL=$((HOURS * 3600))
+}
+wait_running() {
+ # Require a stable process over five checks; this does not claim node connectivity.
+ stable=0; tries=0
+ while [ "$tries" -lt 15 ]; do
+  if service running; then stable=$((stable + 1)); else stable=0; fi
+  [ "$stable" -lt 5 ] || return 0
+  sleep 1; tries=$((tries + 1))
+ done
+ return 1
+}
 origin_valid() {
  case "$1" in https://*) ;; *) return 1;; esac
  # Deliberately accept only DNS/IPv4 origins, optionally with a numeric port.
@@ -178,7 +201,7 @@ case "$1" in
   [ "$QUOTA_STATUS" != available ] || add_quota
   json_add_string url "$URL"; json_add_string lan_interface "$(get daede.member.lan_interface)"
   json_add_string mode "$(get daede.member.mode)"; json_add_string last_sync "$(get daede.member.last_sync)"; json_add_boolean auto_sync "$(get daede.member.auto_sync)"; json_add_string sync_interval "$(get daede.member.sync_interval)"
-  json_add_string warning "$note"; running=0; service running && running=1; json_add_boolean running "$running"; json_dump;;
+  json_add_string next_sync "$(get daede.member.next_sync)"; json_add_string last_error "$(cat "$STATE/last-error" 2>/dev/null)"; json_add_string warning "$note"; running=0; service running && running=1; json_add_boolean running "$running"; json_dump;;
  login)
   [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] && [ "$(wc -c < "$REQUEST")" -le 16384 ] || error 'Invalid login request'
   mv "$REQUEST" "$WORK/login-request" || error 'Cannot consume login request'
@@ -209,10 +232,23 @@ case "$1" in
  schedule)
   case "$2" in ''|*[!0-9]*) error 'Invalid sync interval';; esac
   [ "$2" -ge 1 ] 2>/dev/null && [ "$2" -le 24 ] 2>/dev/null || error 'Sync interval must be between 1 and 24 hours'
-  uci set daede.member=member && uci set daede.member.auto_sync=1 && uci set daede.member.sync_interval="$2" && uci commit daede || error 'Cannot save sync schedule'
+  HOURS="$(expr "$2" + 0)"
+  NEXT=$(($(date +%s) + HOURS * 3600))
+  uci set daede.member=member && uci set "daede.member.next_sync=$NEXT" && uci set daede.member.auto_sync=1 && uci set daede.member.sync_interval="$2" && uci commit daede || error 'Cannot save sync schedule'
   "$ROOT/usr/share/luci-app-daede/member-sync-cron.sh" enable || error 'Cannot apply sync schedule'
-  json_init; json_add_boolean ok 1; json_add_string sync_interval "$2"; json_dump;;
- sync)
+  json_init; json_add_boolean ok 1; json_add_string sync_interval "$2"; json_add_string next_sync "$NEXT"; json_dump;;
+ sync|scheduled)
+  # Timed tasks never start a stopped service or replace locally edited rules.
+  if [ "$1" = scheduled ]; then
+   [ "$(get daede.member.auto_sync)" = 1 ] && [ "$(get daede.member.mode)" = cloud ] && service running || { success; exit 0; }
+   due="$(get daede.member.next_sync)"; case "$due" in ''|*[!0-9]*) due=0;; esac
+   [ "$(date +%s)" -ge "$due" ] || { success; exit 0; }
+  fi
+  SYNC_TRACK=1
+  interval_seconds
+  NEXT=$(($(date +%s) + INTERVAL))
+  uci set "daede.member.next_sync=$NEXT" && uci commit daede || error 'Cannot save next sync time'
+  phase '正在生成配置'
   [ "$(get daede.config.active_backend)" = dae ] || error 'Select the dae backend before synchronizing'
   if [ -x "$ROOT/etc/init.d/daed" ] && "$ROOT/etc/init.d/daed" running >/dev/null 2>&1; then error 'Stop daed before synchronizing'; fi
   LAN="$(get daede.member.lan_interface)"; interface_valid "$LAN" || error 'Saved LAN interface no longer exists'
@@ -243,6 +279,7 @@ case "$1" in
     done
    fi
   fi
+  phase '正在下载配置'
   request GET "/api/dae/$JOB/config.dae" "$WORK/cookie" '' 8388608 || request_error '云端配置下载失败'
   [ -s "$WORK/response" ] || error 'Downloaded configuration is empty'
   COUNT="$(awk '{n+=gsub(/__DAE_LAN_INTERFACE__/, "&")} END {print n+0}' "$WORK/response")"
@@ -250,6 +287,7 @@ case "$1" in
   sed "s/__DAE_LAN_INTERFACE__/$LAN/" "$WORK/response" > "$WORK/config.dae"
   # dae 1.0.0 不支持新版 DNS 缓存字段，下载后清理以保证配置可启动。
   sed -i -e '/^[[:space:]]*optimistic_cache[[:space:]]*:/d' -e '/^[[:space:]]*optimistic_cache_ttl[[:space:]]*:/d' -e '/^[[:space:]]*max_cache_size[[:space:]]*:/d' "$WORK/config.dae"
+  phase '正在校验配置'
   "$ROOT/usr/bin/dae" validate -c "$WORK/config.dae" >/dev/null 2>&1 || error 'dae configuration validation failed; current configuration was kept'
   CONF="$ROOT/etc/dae/config.dae"; mkdir -p "$ROOT/etc/dae" || error 'Cannot create configuration directory'
   uci export daede > "$WORK/daede.uci" || error 'Cannot back up member settings'
@@ -257,10 +295,14 @@ case "$1" in
   HAD=0; WAS_RUNNING=0; WAS_ENABLED=0
   service running && WAS_RUNNING=1; service enabled && WAS_ENABLED=1
   if [ -f "$CONF" ]; then cp -p "$CONF" "$WORK/previous" || error 'Cannot back up current configuration'; HAD=1; fi
+  if [ "$1" = scheduled ] && ! service running; then success; exit 0; fi
   cp "$WORK/config.dae" "$CONF.member-new" && chmod 600 "$CONF.member-new" && mv "$CONF.member-new" "$CONF" || error 'Cannot install downloaded configuration'
+  phase '正在应用配置'
+  APPLY=restart
+  if [ "$WAS_RUNNING" = 1 ] && [ "$HAD" = 1 ] && [ "$(get dae.config.config_file)" = /etc/dae/config.dae ] && cmp -s "$WORK/previous" "$WORK/config.dae"; then APPLY=hot_reload; fi
   apply_ok=0
-  if uci set daede.member=member && uci set daede.member.mode=cloud && uci commit daede && uci set dae.config.enabled=1 && uci set dae.config.config_file=/etc/dae/config.dae && uci commit dae && service enable && service restart; then
-   sleep 2; service running && apply_ok=1
+  if uci set daede.member=member && uci set daede.member.mode=cloud && uci commit daede && uci set dae.config.enabled=1 && uci set dae.config.config_file=/etc/dae/config.dae && uci commit dae && service enable && service "$APPLY"; then
+   wait_running && apply_ok=1
   fi
   if [ "$apply_ok" != 1 ]; then
    # 2026-09-23: stop_service deletes dae.log; preserve failure evidence before rollback.
@@ -272,21 +314,22 @@ case "$1" in
    uci import daede < "$WORK/daede.uci" && uci commit daede
    [ "$WAS_ENABLED" = 1 ] && service enable || service disable
    recovered=1
-   if [ "$WAS_RUNNING" = 1 ]; then service restart && sleep 2 && service running || recovered=0; fi
+   if [ "$WAS_RUNNING" = 1 ]; then service restart && wait_running || recovered=0; fi
    [ "$recovered" = 1 ] && error 'New configuration failed to start; previous configuration restored. See /tmp/daede-member/last-start.log'
    error 'New configuration failed and previous service could not restart; check the dae service log'
   fi
   # 2026-09-23: cloud sync must not restore the retired acceleration URLs.
-  uci set daede.config.geoip_url='https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
-  uci set daede.config.geosite_url='https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
-  uci set daede.config.geo_auto='1'
-  uci set daede.config.geo_auto_freq='daily'
+  [ -n "$(get daede.config.geoip_url)" ] || uci set daede.config.geoip_url='https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
+  [ -n "$(get daede.config.geosite_url)" ] || uci set daede.config.geosite_url='https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
+  [ -n "$(get daede.config.geo_auto)" ] || uci set daede.config.geo_auto='1'
+  [ -n "$(get daede.config.geo_auto_freq)" ] || uci set daede.config.geo_auto_freq='daily'
   uci commit daede || error 'Configuration is running but data update settings could not be saved'
-  "$ROOT/usr/share/luci-app-daede/geo-cron.sh" enable || error 'Configuration is running but data update schedule could not be enabled'
+  "$ROOT/usr/share/luci-app-daede/geo-cron.sh" "$( [ "$(get daede.config.geo_auto)" = 1 ] && echo enable || echo disable )" || error 'Configuration is running but data update schedule could not be enabled'
   uci -q get daede.member.auto_sync 2>/dev/null | grep -qx 1 && "$ROOT/usr/share/luci-app-daede/member-sync-cron.sh" enable || true
   [ "$HAD" != 1 ] || cp "$WORK/previous" "$ROOT/etc/dae/config.dae.member-backup"
   NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   uci set daede.member=member && uci set daede.member.mode=cloud && uci set "daede.member.last_sync=$NOW" && uci set "daede.member.warning=$WARNING" && uci commit daede || error 'Configuration is running but member status could not be saved'
-  json_init; json_add_boolean ok 1; json_add_string last_sync "$NOW"; json_add_string warning "$WARNING"; json_add_boolean running 1; json_dump;;
+  rm -f "$STATE/last-error"
+  json_init; json_add_boolean ok 1; json_add_string next_sync "$NEXT"; json_add_string last_sync "$NOW"; json_add_string warning "$WARNING"; json_add_boolean running 1; json_dump;;
  *) error 'Unknown member operation';;
 esac

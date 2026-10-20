@@ -19,7 +19,7 @@ function callHelper(action, args) {
 }
 
 // 2026-10-16: Poll small RPCs while the router completes long cloud requests.
-function invoke(action, args) {
+function invoke(action, args, progress) {
  if (!['login', 'sync', 'logout'].includes(action)) return callHelper(action, args);
  const bytes = new Uint8Array(16);
  window.crypto.getRandomValues(bytes);
@@ -28,6 +28,7 @@ function invoke(action, args) {
  function waitResult() {
   return callHelper('result', [id]).then(function(result) {
    if (!result.pending) return result;
+   if (progress && result.phase) progress(result.phase);
    if (Date.now() >= deadline) throw new Error('任务仍在处理，请稍后刷新查看结果，勿重复提交');
    return new Promise(resolve => setTimeout(resolve, 1000)).then(waitResult);
   });
@@ -153,7 +154,7 @@ function render(ctx) {
 	lan.appendChild(E('option', { 'value': '' }, '请选择 LAN 接口'));
 	(ctx.netDevs || []).forEach(function(name) { lan.appendChild(E('option', { 'value': name }, name)); });
 	lan.value = state.lan_interface || '';
-	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || (state.logged_in ? state.warning : '') || ctx.memberRefreshNote || '');
+	const feedback = E('p', { 'class': 'dd-member-feedback', 'role': 'status', 'aria-live': 'polite' }, ctx.memberError || state.last_error || (state.logged_in ? state.warning : '') || ctx.memberRefreshNote || '');
 	const buttons = [];
 	function action(label, handler, primary) {
 		const button = E('button', { 'type': 'button', 'class': 'cbi-button ' + (primary ? 'cbi-button-action' : 'cbi-button-neutral'), 'aria-label': label }, label);
@@ -161,19 +162,21 @@ function render(ctx) {
 			const previous = buttons.map(function(b) { return b.disabled; });
 			buttons.forEach(function(b) { b.disabled = true; });
 			button.textContent = '处理中…';
+			button.className += ' dd-member-busy';
 			feedback.textContent = '';
 			Promise.resolve().then(handler).catch(function(error) {
 				feedback.textContent = error.message || '操作失败';
 			}).finally(function() {
 				password.value = '';
 				button.textContent = label;
+				button.className = button.className.replace(' dd-member-busy', '');
 				buttons.forEach(function(b, index) { b.disabled = previous[index]; });
 			});
 		});
 		buttons.push(button);
 		return button;
 	}
-	function reload() { window.location.reload(); }
+
 	function refreshMember(fallback, notice) {
 		// 登录不改变配置来源，只替换会员卡，保留其他表单及页面位置。
 		return getStatus().then(function(nextState) {
@@ -187,7 +190,7 @@ function render(ctx) {
 				memberState: result.state, memberError: result.error, memberRefreshNote: notice
 			}));
 			card.replaceWith(next);
-			if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: result.state }));
+			if (state.mode !== result.state.mode && typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: result.state }));
 			if (typeof window.scrollTo === 'function') window.scrollTo({ left: x, top: y, behavior: 'instant' });
 		});
 	}
@@ -214,25 +217,38 @@ function render(ctx) {
 			'配置状态：' + config + ' · 订阅状态：' + subscription;
 	}
 	const stateLine = E('p', { 'class': 'dd-member-state' }, stateText());
-	const syncHours = E('input', {
+	function scheduleText() {
+        if (!state.auto_sync) return '自动同步未开启';
+        if (state.mode !== 'cloud') return '本地模式下暂停自动同步';
+        if (state.running === false) return '服务已关闭，自动同步暂停';
+        const next = Number(state.next_sync);
+        return next > 0 ? '下次同步 ' + new Date(next * 1000).toLocaleString('zh-CN', { hour12: false }) : '等待定时检查';
+    }
+    const scheduleLine = E('p', { 'class': 'dd-member-note', 'aria-live': 'polite' }, scheduleText());
+    const syncHours = E('input', {
 		type: 'number', min: '1', max: '24', step: '1',
 		'class': 'cbi-input-text', 'aria-label': '同步间隔（小时）',
 		style: 'display:block;box-sizing:border-box;width:100%;flex:1 1 auto;min-width:0',
 		value: state.sync_interval || '6'
 	});
 	const syncSchedule = E('button', { type: 'button', class: 'cbi-button cbi-button-neutral', style: 'flex:0 0 auto;margin:0;white-space:nowrap' }, '保存同步周期');
-	syncSchedule.disabled = !state.logged_in;
+	syncSchedule.disabled = !state.logged_in || String(syncHours.value) === String(state.sync_interval || '6');
+	syncHours.addEventListener('input', function() { syncSchedule.disabled = !state.logged_in || String(syncHours.value) === String(state.sync_interval || '6'); });
+	buttons.push(syncSchedule);
 	syncSchedule.addEventListener('click', function() {
 		const hours = String(syncHours.value || '').trim();
 		syncSchedule.disabled = true;
 		syncSchedule.textContent = '保存中…';
-		invoke('schedule', [hours]).then(function() {
+		invoke('schedule', [hours]).then(function(result) {
+            state.sync_interval = hours; state.auto_sync = true; state.next_sync = result.next_sync;
+            scheduleLine.textContent = scheduleText();
+            feedback.textContent = '✓ 已保存，每 ' + hours + ' 小时同步';
 			ui.addNotification(null, E('p', {}, '同步周期已保存，每 ' + hours + ' 小时同步'), 'info');
 		}).catch(function(error) {
 			ui.addNotification(null, E('p', {}, error.message || '保存同步周期失败'), 'error');
 		}).finally(function() {
 			syncSchedule.textContent = '保存同步周期';
-			syncSchedule.disabled = !state.logged_in;
+			syncSchedule.disabled = !state.logged_in || String(syncHours.value) === String(state.sync_interval || '6');
 		});
 	});
 	const syncScheduleBox = E('div', { class: 'dd-member-field dd-member-sync-field' }, [
@@ -254,8 +270,8 @@ function render(ctx) {
 			}), '登录成功');
 		});
 	}, !state.logged_in);
-	const sync = action('应用云端配置', function() {
-		return invoke('sync').then(function(result) {
+	const sync = action(state.running === false ? '应用并启用' : '应用云端配置', function() {
+		return invoke('sync', [], function(phase) { feedback.textContent = phase; }).then(function(result) {
 			const modeChanged = state.mode !== 'cloud';
 			state.logged_in = true;
 			state.mode = 'cloud';
@@ -263,10 +279,12 @@ function render(ctx) {
 			state.last_sync = result.last_sync || new Date().toISOString();
 			state.warning = result.warning || '';
 			state.running = result.running === true;
+            state.next_sync = result.next_sync; state.last_error = '';
+            scheduleLine.textContent = scheduleText();
 			stateLine.textContent = stateText();
 			local.hidden = false;
 			if (modeChanged && typeof document !== 'undefined') document.dispatchEvent(new CustomEvent('daede-member-state', { detail: state }));
-			feedback.textContent = '同步成功，dae 已启用。' + (state.warning ? ' ' + state.warning : '');
+			feedback.textContent = '✓ 同步成功，配置已应用，服务运行中；节点连通性可通过服务区测试。' + (state.warning ? ' ' + state.warning : '');
 			ui.addNotification(null, E('p', {}, feedback.textContent), 'info');
 		});
 	}, true);
@@ -285,7 +303,7 @@ function render(ctx) {
 				' ',
 				E('button', { 'class': 'cbi-button cbi-button-action', 'click': function(ev) {
 					ev.currentTarget.disabled = true;
-					invoke('local').then(reload).catch(function(error) { ui.hideModal(); feedback.textContent = error.message; });
+					invoke('local').then(function() { ui.hideModal(); return refreshMember(Object.assign({}, state, { mode: 'local' }), '已切换到本地编辑'); }).catch(function(error) { ui.hideModal(); feedback.textContent = error.message; });
 				} }, '切换到本地')
 			])
 		]);
@@ -299,26 +317,29 @@ function render(ctx) {
 	]);
 	const settings = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-neutral' }, '账户设置');
 	settings.hidden = !state.logged_in;
+    settings.setAttribute && settings.setAttribute('aria-expanded', 'false');
 	settings.addEventListener('click', function() {
 		const opening = credentials.style.display === 'none';
 		credentials.style.display = opening ? 'grid' : 'none';
 		settings.textContent = opening ? '收起设置' : '账户设置';
+        settings.setAttribute && settings.setAttribute('aria-expanded', String(opening));
 	});
 	const usage = renderUsage(ctx);
 	const cardChildren = [
 		E('div', { 'class': 'dd-member-head' }, [
-			E('h4', { 'class': 'dd-card-title' }, '会员配置'), memberName, modeBadge
+			E('h4', { 'class': 'dd-card-title' }, '会员配置'),
+            state.logged_in ? E('span', { 'class': 'dd-member-vip', 'aria-label': '会员' }, 'VIP') : null, memberName, modeBadge
 		])
 	];
 	if (usage) cardChildren.push(usage);
 	cardChildren.push(
-		stateLine,
+		stateLine, scheduleLine,
 		credentials,
 		E('div', { 'class': 'dd-member-actions' }, [sync, local, settings]),
 		E('p', { 'class': 'dd-member-note' }, state.logged_in && state.mode === 'cloud' ? '当前由云端统一管理规则；如需手动修改，请先切换到本地编辑。' : '登录会员后可使用云端规则；本地模式下可手动调整配置。'),
 		feedback
 	);
-	card = E('div', { 'class': 'dd-card dd-member-card' }, cardChildren);
+	card = E('div', { 'class': 'dd-card dd-member-card' + (ctx.memberRefreshNote === '登录成功' ? ' dd-member-welcome' : '') }, cardChildren);
 	return card;
 }
 
