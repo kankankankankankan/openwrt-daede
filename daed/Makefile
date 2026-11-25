@@ -5,13 +5,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=daed
-PKG_VERSION:=2026.10.18
+PKG_VERSION:=2026.11.21
 PKG_RELEASE:=1
 
-PKG_SOURCE:=daed-src-2026.10.18-b7827fb4b582.tar.gz
+PKG_SOURCE:=daed-src-2026.11.21-acd5b0a8d4fd.tar.gz
 PKG_SOURCE_URL:=https://github.com/kenzok8/openwrt-daede/releases/download/daed-src
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
-PKG_HASH:=b7827fb4b58223ff1d1a21dc90d003d2058e41d201a249ca691cd8fc1b44095c
+PKG_HASH:=acd5b0a8d4fdf117fad97a60bb751c01e996beb250c294ac0b5089888853c598
 
 PKG_LICENSE:=AGPL-3.0-only MIT
 PKG_LICENSE_FILES:=LICENSE wing/LICENSE
@@ -19,6 +19,9 @@ PKG_MAINTAINER:=kenzok8
 
 DAED_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 PKG_BUILD_DIR:=$(DAED_BUILD_DIR)/wing
+
+DAE_CORE_PATCH_DIR:=$(CURDIR)/../ci/patches/dae-core
+PKG_FILE_DEPENDS+=$(DAE_CORE_PATCH_DIR)
 
 PKG_BUILD_DEPENDS:=golang/host bpf-headers
 PKG_BUILD_PARALLEL:=1
@@ -96,6 +99,8 @@ endef
 define Build/Prepare
 	mkdir -p $(DAED_BUILD_DIR)
 	$(TAR) --strip-components=1 -C $(DAED_BUILD_DIR) -xzf $(DL_DIR)/$(PKG_SOURCE)
+	@test -s "$(DAE_CORE_PATCH_DIR)/0001-keep-protocol-wrappers-in-tcp-relay.patch"
+	$(call PatchDir,$(PKG_BUILD_DIR)/dae-core,$(DAE_CORE_PATCH_DIR),)
 	$(if $(wildcard $(CURDIR)/patches/*.patch),$(call PatchDir,$(PKG_BUILD_DIR),$(CURDIR)/patches,))
 	$(if $(filter arm,$(ARCH)),$(if $(wildcard $(CURDIR)/patches_arm/*.patch),$(call PatchDir,$(PKG_BUILD_DIR),$(CURDIR)/patches_arm,)))
 endef
