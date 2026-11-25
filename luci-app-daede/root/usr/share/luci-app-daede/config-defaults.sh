@@ -39,7 +39,7 @@ if ! uci -q get daede.config.edition >/dev/null 2>&1; then
 	uci -q set daede.config.edition='VIP'
 fi
 if ! uci -q get daede.config.upstream_base >/dev/null 2>&1; then
-	uci -q set daede.config.upstream_base='1.15-r5'
+	uci -q set daede.config.upstream_base='1.15-r16'
 fi
 uci -q commit dae
 uci -q commit daede

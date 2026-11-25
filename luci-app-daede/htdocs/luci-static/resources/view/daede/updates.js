@@ -35,6 +35,11 @@ const HEALTH_PATHS = {
 	btfDetached: '/usr/lib/debug/boot/vmlinux',
 	netns: '/run/netns/daens'
 };
+// geoip/geosite are 10 MB+; anything under 4 MiB came from a cut-off download.
+const GEO_MIN_BYTES = 4 * 1024 * 1024;
+
+const INDEX_STATUS_PATH = '/tmp/luci-app-daede.idx.status';
+let indexStartFailed = false;
 
 const CSS = [
 	'.dd-up-wrap{padding:6px 0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}',
@@ -122,11 +127,19 @@ function probeFile(path) {
 
 function probePkg(pkg) {
 	return fs.exec('/usr/share/luci-app-daede/pkg-info.sh', [pkg]).then(function(res) {
-		// 2026-09-23: a leading tab means absent, not an installed candidate.
+		if (res.code !== 0) throw new Error('package probe failed');
 		const out = (res.stdout || '').replace(/[\r\n]+$/, '').split('\t');
-		return { installed: out[0] || '', latest: out[1] || '' };
+		return { installed: out[0] || '', latest: out[1] || '', state: out[2] || 'absent' };
 	}).catch(function() {
-		return { installed: '', latest: '' };
+		return { installed: '', latest: '', state: 'error' };
+	});
+}
+
+function probeIndex() {
+	if (indexStartFailed) return Promise.resolve('failed');
+	return L.resolveDefault(fs.read_direct(INDEX_STATUS_PATH, 'text'), '').then(function(out) {
+		const state = String(out).trim();
+		return state === 'success' || state === 'failed' ? state : 'running';
 	});
 }
 
@@ -138,14 +151,16 @@ function stamp() {
 
 return view.extend({
 	load: function() {
-		// background apk update so new versions show on next poll
-		fs.exec('/usr/share/luci-app-daede/refresh-index.sh', []).catch(function() {});
+		// The script starts a background refresh and returns after writing its state.
 		return Promise.all([
+			fs.exec('/usr/share/luci-app-daede/refresh-index.sh', []).then(function(res) {
+				indexStartFailed = res.code !== 0;
+			}).catch(function() { indexStartFailed = true; }),
 			backend.detectBackend(),
 			uci.load('daed').catch(function() {}),
 			uci.load('daede').catch(function() {})
 		]).then(function(r) {
-			return r[0];
+			return r[1];
 		});
 	},
 
@@ -343,6 +358,7 @@ return view.extend({
 				probes.push(probePkg(pkg));
 			});
 			probes.push(probePkg('luci-app-daede'));
+			probes.push(probeIndex());
 
 			if (ctx.backend.useNetns)
 				probes.push(probeFile(HEALTH_PATHS.netns));
@@ -355,7 +371,8 @@ return view.extend({
 					coreInfo[pkg] = r[pkgOffset + i];
 				});
 				const luci = r[pkgOffset + corePkgs.length];
-				const ns = r[pkgOffset + corePkgs.length + 1];
+				const indexState = r[pkgOffset + corePkgs.length + 1];
+				const ns = r[pkgOffset + corePkgs.length + 2];
 
 				// data rows
 				while (dataBody.firstChild) dataBody.removeChild(dataBody.firstChild);
@@ -365,12 +382,15 @@ return view.extend({
 				].forEach(function(entry) {
 					const btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Update'));
 					btn.addEventListener('click', function() { updateGeo(entry.k, btn); });
+					// A truncated download still exists and parses; the size is the only tell.
+					const incomplete = entry.r.exists && entry.r.size < GEO_MIN_BYTES;
 					const meta = entry.r.exists
 						? fmtBytes(entry.r.size) + (entry.r.mtime ? ' · ' + fmtMtime(entry.r.mtime) : '')
+							+ (incomplete ? ' · ' + _('incomplete, update again') : '')
 						: _('missing — click Update to fetch');
 					dataBody.appendChild(mkRow(
-						entry.r.exists ? '✓' : '✗',
-						entry.r.exists ? 'dd-up-ok' : 'dd-up-err',
+						incomplete ? '⚠' : entry.r.exists ? '✓' : '✗',
+						incomplete ? 'dd-up-warn' : entry.r.exists ? 'dd-up-ok' : 'dd-up-err',
 						entry.name,
 						meta,
 						btn
@@ -385,12 +405,7 @@ return view.extend({
 					const label = _('%s binary').format(pkg) + (ctx.name === pkg ? ' · ' + _('active') : '');
 					return { k: pkg, name: label, r: coreInfo[pkg] };
 				}).concat([
-					{
-						k: 'luci-app-daede',
-						name: 'luci-app-daede' + (EDITION ? ' · ' + EDITION : ''),
-						base: UPSTREAM_BASE,
-						r: luci
-					}
+					{ k: 'luci-app-daede', name: 'luci-app-daede' + (EDITION ? ' · ' + EDITION : ''), base: UPSTREAM_BASE, r: luci }
 				]).forEach(function(entry) {
 					const btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Upgrade'));
 					btn.addEventListener('click', function() { upgradePkg(entry.k, btn); });
@@ -399,28 +414,34 @@ return view.extend({
 					// a stale compile-jell build) must never be offered as an upgrade.
 					const cmp = (entry.r.installed && entry.r.latest)
 						? cmpVer(entry.r.latest, entry.r.installed) : null;
-					const updatable = cmp !== null && cmp > 0;
+					const updatable = indexState === 'success' && cmp !== null && cmp > 0;
 					let meta;
 					if (!entry.r.installed) {
-						meta = _('not installed via package manager');
+						meta = entry.r.state === 'manual' ? _('not installed via package manager')
+							: entry.r.state === 'foreign' ? _('unsupported package version')
+							: entry.r.state === 'error' ? _('package status unavailable') : _('Not installed');
 						btn.disabled = true;
 						btn.textContent = _('Unavailable');
+					} else if (indexState === 'failed') {
+						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('package index refresh failed');
+						btn.disabled = true;
+					} else if (indexState !== 'success') {
+						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('refreshing package indexes');
+						btn.disabled = true;
 					} else if (!entry.r.latest) {
-						// latest unknown (registry unreachable) - nothing to upgrade to
-						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('latest version unknown');
+						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('package not found in configured feeds');
 						btn.disabled = true;
 					} else if (updatable) {
 						meta = _('installed') + ': ' + entry.r.installed + ' → ' + _('latest') + ': ' + entry.r.latest;
 					} else {
-						// installed >= feed: already up to date (feed may even be older)
 						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('up to date');
 						btn.disabled = true;
 					}
-					if (entry.base)
-						meta += ' · ' + _('based on upstream') + ' ' + entry.base;
+					if (entry.base) meta += ' · ' + _('based on upstream') + ' ' + entry.base;
+					const uncertain = entry.r.installed && (indexState !== 'success' || !entry.r.latest);
 					pkgBody.appendChild(mkRow(
-						updatable ? '↑' : (entry.r.installed ? '✓' : '✗'),
-						updatable ? 'dd-up-new' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err'),
+						updatable ? '↑' : (uncertain ? '⚠' : (entry.r.installed ? '✓' : '✗')),
+						updatable ? 'dd-up-new' : (uncertain ? 'dd-up-warn' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err')),
 						entry.name,
 						meta,
 						btn

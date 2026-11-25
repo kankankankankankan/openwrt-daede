@@ -13,7 +13,7 @@ fail() {
     exit 1
 }
 
-for command_name in awk curl git go patch sed tar; do
+for command_name in awk curl diff git go patch sed sort tar; do
     command -v "$command_name" >/dev/null 2>&1 || fail "missing required command: $command_name"
 done
 
@@ -100,12 +100,16 @@ patch_dirs=(
     dae/patches_arm
     daed/patches
     daed/patches_arm
+    ci/patches/dae-core
     ci/patches/daed-web
     ci/patches/outbound
     ci/patches/quic-go
+    .github/patches
 )
 shopt -s nullglob
 patch_count=0
+actual_patches="$audit_tmp/actual-patches.txt"
+: > "$actual_patches"
 for patch_dir in "${patch_dirs[@]}"; do
     [[ -d "$repo/$patch_dir" ]] || fail "missing patch directory: $patch_dir"
     patch_files=("$repo/$patch_dir"/*.patch)
@@ -115,9 +119,13 @@ for patch_dir in "${patch_dirs[@]}"; do
     for patch_file in "${patch_files[@]}"; do
         [ -f "$patch_file" ] || continue
         patch_count=$((patch_count + 1))
+        printf '%s\n' "${patch_file#"$repo"/}" >> "$actual_patches"
     done
 done
 (( patch_count > 0 )) || fail "no patches found in the patch directories"
+[[ -f "$repo/ci/patches/expected.txt" ]] || fail "missing expected patch inventory"
+sort -o "$actual_patches" "$actual_patches"
+diff -u "$repo/ci/patches/expected.txt" "$actual_patches" || fail "patch inventory changed; review it before updating expected.txt"
 
 processed_count=0
 absorbed_count=0
@@ -165,6 +173,8 @@ download_source() {
 dae_source=$(download_source dae)
 [[ -d "$dae_source/core" ]] || fail "missing assembled dae core: $dae_source/core"
 cp -a "$dae_source" "$audit_tmp/dae-arm"
+apply_tree_patches "$dae_source/core" ci/patches/dae-core
+apply_tree_patches "$audit_tmp/dae-arm/core" ci/patches/dae-core no_count
 apply_tree_patches "$dae_source/core" dae/patches
 apply_tree_patches "$audit_tmp/dae-arm/core" dae/patches_arm
 
@@ -177,6 +187,8 @@ for patch_file in "$repo"/ci/patches/daed-web/*.patch; do
     printf 'EMBEDDED: %s\n' "${patch_file#"$repo"/}"
 done
 cp -a "$daed_source" "$audit_tmp/daed-arm"
+apply_tree_patches "$daed_source/wing/dae-core" ci/patches/dae-core no_count
+apply_tree_patches "$audit_tmp/daed-arm/wing/dae-core" ci/patches/dae-core no_count
 apply_tree_patches "$daed_source/wing" daed/patches
 apply_tree_patches "$audit_tmp/daed-arm/wing" daed/patches no_count
 apply_tree_patches "$audit_tmp/daed-arm/wing" daed/patches_arm
@@ -236,6 +248,14 @@ printf 'TEST: outbound SSR\n'
 apply_git_patches "$quic_dir" ci/patches/quic-go
 printf 'BUILD: quic-go ./...\n'
 (cd "$quic_dir" && go build ./...)
+
+sdk_action_sha=44f98c51d04aebd1aa79fe4f603559c1ec2085da
+grep -Fq "ref: $sdk_action_sha" "$repo/.github/workflows/release.yml" || \
+    fail "release.yml does not use the audited SDK action"
+sdk_action_dir="$audit_tmp/gh-action-sdk"
+printf 'FETCH: gh-action-sdk %s\n' "$sdk_action_sha"
+fetch_exact https://github.com/kenzok8/gh-action-sdk "$sdk_action_sha" "$sdk_action_dir"
+apply_git_patches "$sdk_action_dir" .github/patches
 
 [[ "$processed_count" -eq "$patch_count" ]] || fail "processed $processed_count of $patch_count patches"
 [[ "$absorbed_count" -eq 0 ]] || fail "$absorbed_count patch(es) appear absorbed upstream"

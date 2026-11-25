@@ -18,16 +18,16 @@ jobs:
   assemble:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Load pins
         run: cat ci/pins.env | grep -E '^[A-Z]' >> "$GITHUB_ENV"
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.0"
+          go-version: "1.27.3"
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -91,9 +91,11 @@ jobs:
           find "$OUT/wing/webrender/web" -type f -size +4k ! -name "*.gz" ! -name "*.woff" ! -name "*.woff2" \
             -exec sh -c 'gzip -n -9 -k "$1"; [ "$(stat -c%s "$1")" -lt "$(stat -c%s "$1.gz")" ] && rm "$1.gz" || rm "$1"' _ {} \;
 
-          # Strip VCS / node junk; go module deps are fetched via go.sum at build time.
+          # Strip VCS / node junk and nondeterministic build caches; go module
+          # deps are fetched via go.sum at build time.
           find "$OUT" -name .git -type d -prune -exec rm -rf {} +
           find "$OUT" -name node_modules -type d -prune -exec rm -rf {} +
+          find "$OUT" -name .turbo -type d -prune -exec rm -rf {} +
 
           SOURCE_DATE_EPOCH=$(date -u -d "${DAED_VERSION//./-}T00:00:00Z" +%s)
           export SOURCE_DATE_EPOCH

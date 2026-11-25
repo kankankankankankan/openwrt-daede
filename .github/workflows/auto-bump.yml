@@ -199,7 +199,7 @@ jobs:
       - uses: actions/setup-go@v6
         if: github.event_name == 'workflow_dispatch' && steps.detect.outputs.changed == 'true'
         with:
-          go-version: "1.26.0"
+          go-version: "1.27.3"
 
       - name: Sync kenzok8 forks from olicesx
         if: github.event_name == 'workflow_dispatch' && steps.detect.outputs.changed == 'true'

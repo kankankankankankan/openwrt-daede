@@ -14,7 +14,7 @@ concurrency:
 
 env:
   UPSTREAM_REPOSITORY: kenzok8/openwrt-daede
-  SYNC_PATHS: "dae daed vmlinux-btf"
+  SYNC_PATHS: "dae daed vmlinux-btf ci/patches/dae-core"
 
 jobs:
   sync:
@@ -54,7 +54,8 @@ jobs:
         run: |
           set -euo pipefail
           # Remove files deleted upstream, then restore only the upstream-owned
-          # package directories. luci-app-daede and local CI files stay intact.
+          # package directories. luci-app-daede and local CI files stay intact. Shared core patches
+          # travel with the Makefiles that require them.
           deleted=$(git diff --name-only --diff-filter=D \
             "${{ steps.upstream.outputs.origin_sha }}" \
             "${{ steps.upstream.outputs.upstream_sha }}" -- $SYNC_PATHS || true)
@@ -68,6 +69,11 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
+          for package in dae daed; do
+            if grep -q 'DAE_CORE_PATCH_DIR' "$package/Makefile"; then
+              test -s ci/patches/dae-core/0001-keep-protocol-wrappers-in-tcp-relay.patch
+            fi
+          done
           node --test tests/*.test.cjs
           # These tests cover the sync workflow and package metadata without
           # starting the long-running member helper harness.

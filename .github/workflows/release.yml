@@ -68,9 +68,9 @@ jobs:
           INDEX: 1
           KEY_BUILD: ${{ secrets.OPKG_KEY_BUILD }}
           PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
-          # dae / daed go.mod requires Go 1.26; override SDK's bundled golang.
+          # dae / daed go.mod requires Go 1.27; override SDK's bundled golang.
           GOLANG_REPO: https://github.com/kenzok8/golang
-          GOLANG_BRANCH: '1.26'
+          GOLANG_BRANCH: '1.27'
 
       - name: Require all release packages
         env:

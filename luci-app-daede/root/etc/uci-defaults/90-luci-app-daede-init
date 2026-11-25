@@ -48,6 +48,10 @@ if ! uci -q get daede.config >/dev/null 2>&1; then
 	uci -q commit daede
 fi
 
+# Refresh the reviewed LuCI baseline even when UCI preserves an older conffile.
+uci -q set daede.config.upstream_base='1.15-r16'
+uci -q commit daede
+
 # 2026-09-23: retire the built-in acceleration preset, preserving custom URLs.
 geo_changed=0
 for geo_kind in geoip geosite; do

@@ -73,7 +73,7 @@ jobs:
           KEY_BUILD: ${{ secrets.OPKG_KEY_BUILD }}
           PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
           GOLANG_REPO: https://github.com/kenzok8/golang
-          GOLANG_BRANCH: '1.26'
+          GOLANG_BRANCH: '1.27'
 
       - name: Validate requested packages
         id: validate

@@ -9,31 +9,53 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'luci-app-daede/root/usr/share/luci-app-daede/pkg-info.sh'
 
 class PackageInfo(unittest.TestCase):
-    def probe(self, manager, installed, latest):
+    def probe(self, manager, installed, latest, package='dae', compressed=True):
+        import gzip
+        import shutil
         with tempfile.TemporaryDirectory() as directory:
-            bindir = Path(directory)
-            for tool in ('awk', 'sort', 'tail'):
-                import shutil
+            root = Path(directory)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            for tool in ('awk', 'gzip', 'cat'):
                 (bindir / tool).symlink_to(shutil.which(tool))
             mock = bindir / manager
-            mock.write_text('''#!/bin/sh
+            mock.write_text("""#!/bin/sh
 case "$1" in
-  status) [ -z "$INSTALLED" ] || printf 'Version: %s\\n' "$INSTALLED" ;;
-  info) if [ "$MANAGER" = apk ]; then [ -n "$INSTALLED" ]; else printf 'Version: %s\\n' "$LATEST"; fi ;;
-  list)
-    if [ "$2" = -I ]; then printf '%s-%s x86_64 {test} [installed]\\n' "$3" "$INSTALLED"
-    else printf '%s-%s x86_64 {test}\\n' "$2" "$LATEST"; fi ;;
+  list) [ "$2" = -a ] || exit 1
+        for version in $LATEST; do printf '%s-%s x86_64 {test}\\n' "$3" "$version"; done ;;
+  *) exit 9 ;;
 esac
-''')
+""")
             mock.chmod(0o755)
-            result = subprocess.check_output(['/bin/sh', str(SCRIPT), 'dae'], env=dict(os.environ, PATH=directory, MANAGER=manager, INSTALLED=installed, LATEST=latest), text=True)
+            env = dict(os.environ, PATH=str(bindir), LATEST=latest,
+                       DAEDE_APK_DB=str(root/'apk-db'),
+                       DAEDE_OPKG_STATUS=str(root/'opkg-status'),
+                       DAEDE_OPKG_LISTS=str(root/'lists'))
+            if manager == 'apk':
+                (root/'apk-db').write_text(f'P:{package}\nV:{installed}\n\n' if installed else '')
+            else:
+                (root/'opkg-status').write_text(f'Package: {package}\nVersion: {installed}\n\n' if installed else '')
+                (root/'lists').mkdir()
+                data=''.join(f'Package: {package}\nVersion: {version}\n\n' for version in latest.split()).encode()
+                (root/'lists/feed').write_bytes(gzip.compress(data) if compressed else data)
+            result = subprocess.check_output(['/bin/sh', str(SCRIPT), package], env=env, text=True)
             return result.rstrip('\n').split('\t')
 
     def test_versions(self):
         for manager in ('opkg', 'apk'):
             for installed in ('1.0.0-r1', '1.24.0-r1', '2026.09.20-r3', ''):
                 with self.subTest(manager=manager, installed=installed):
-                    self.assertEqual(self.probe(manager, installed, '2026.09.20-r3'), [installed, '2026.09.20-r3'])
+                    result=self.probe(manager, installed, '2026.09.20-r3')
+                    self.assertEqual(result[:2], [installed, '2026.09.20-r3'])
+                    if installed:
+                        self.assertEqual(result[2], 'managed')
+
+    def test_highest_revision_and_plain_indexes(self):
+        for manager in ('opkg', 'apk'):
+            with self.subTest(manager=manager):
+                self.assertEqual(self.probe(manager, '1.15-r104', '1.15-r9 1.15-r105 1.15-r16',
+                                            package='luci-app-daede', compressed=False),
+                                 ['1.15-r104', '1.15-r105', 'managed'])
 
     def test_retired_preset_migration(self):
         source = (ROOT / 'luci-app-daede/root/etc/uci-defaults/90-luci-app-daede-init').read_text()

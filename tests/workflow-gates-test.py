@@ -21,7 +21,7 @@ class WorkflowGates(unittest.TestCase):
     def test_upstream_sync_workflow_is_path_scoped_and_direct(self):
         source = (ROOT / '.github/workflows/upstream-sync.yml').read_text()
         self.assertIn("UPSTREAM_REPOSITORY: kenzok8/openwrt-daede", source)
-        self.assertIn('SYNC_PATHS: "dae daed vmlinux-btf"', source)
+        self.assertIn('SYNC_PATHS: "dae daed vmlinux-btf ci/patches/dae-core"', source)
         self.assertIn('git checkout "${{ steps.upstream.outputs.upstream_sha }}" -- $SYNC_PATHS', source)
         self.assertIn('luci-app-daede and local CI files stay intact', source)
         self.assertIn('git push origin HEAD:main', source)

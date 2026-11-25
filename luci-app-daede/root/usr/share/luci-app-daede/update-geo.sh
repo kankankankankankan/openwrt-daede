@@ -5,8 +5,8 @@
 # in /tmp prevents concurrent runs.
 
 TYPE="$1"
-# Default source: direct Loyalsoldier/v2ray-rules-dat.
-# Users can override per-type via
+# Default source: Loyalsoldier/v2ray-rules-dat — daily-built, China-optimized,
+# ships both geoip.dat and geosite.dat. Users can override per-type via
 # daede.config.geoip_url / geosite_url (empty falls back to the default below).
 case "$TYPE" in
 	geoip)
@@ -24,7 +24,7 @@ case "$TYPE" in
 		exit 64
 		;;
 esac
-# 2026-09-23: old backups may still contain the removed acceleration preset.
+# Old backups can restore the retired preset. Keep their direct-source migration.
 [ "$URL" != "https://ghfast.top/$DEF_URL" ] || URL="$DEF_URL"
 [ -n "$URL" ] || URL="$DEF_URL"
 
@@ -92,7 +92,7 @@ fi
 	else
 		size=$(wc -c < "$TMP" 2>/dev/null || echo 0)
 		magic=$(hexdump -n 1 -e '1/1 "%02x"' "$TMP" 2>/dev/null)
-		if [ "$size" -lt 1024 ]; then
+		if [ "$size" -lt 4194304 ]; then
 			echo "$(date '+%F %T') file too small ($size bytes)"
 			rm -f "$TMP"
 			rc=2
